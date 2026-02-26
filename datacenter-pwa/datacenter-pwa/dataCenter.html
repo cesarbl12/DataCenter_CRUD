@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0b0e14">
+  <meta name="description" content="Gestión visual de racks, equipos y conexiones de Data Center">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="DC Manager">
+
+  <title>Data Center Manager</title>
+
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="styles.css">
+
+  <!-- Apple touch icon (generado con SVG inline como data URI) -->
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════
+     APP SHELL
+══════════════════════════════════════════════════════════ -->
+<div id="app">
+
+  <!-- TOPBAR ──────────────────────────────────────────────── -->
+  <header id="topbar">
+    <div class="topbar-logo">⬛ DC Manager</div>
+    <div class="topbar-sep"></div>
+    <span class="topbar-site-label">SITE:</span>
+    <div class="site-btns" id="siteBtns"></div>
+    <div class="topbar-spacer"></div>
+    <button class="btn-theme" id="btnTheme" title="Cambiar tema">☀️</button>
+  </header>
+
+  <!-- PANEL IZQUIERDO — Lista de Racks ────────────────────── -->
+  <aside id="panel-left">
+    <div class="panel-header">
+      <span class="panel-title">RACKS</span>
+      <button class="btn sm primary" id="btnNewRack">＋ Nuevo</button>
+    </div>
+    <div class="panel-content">
+      <div id="rackList" class="rack-list"></div>
+    </div>
+  </aside>
+
+  <!-- PANEL CENTRAL — Vista de Rack + Lista de Equipos ────── -->
+  <main id="panel-mid">
+
+    <!-- Rack View (diagrama de Us) -->
+    <div>
+      <div class="panel-header">
+        <span class="panel-title" id="rackViewTitle">RACK VIEW</span>
+        <button class="btn sm" id="btnNewEquipo" style="display:none">＋ Equipo</button>
+      </div>
+      <div id="rackStats" class="rack-stats"></div>
+      <div style="padding: 10px;">
+        <div id="rackCanvas" class="rack-frame"></div>
+      </div>
+    </div>
+
+    <div class="sep" style="margin: 0 10px;"></div>
+
+    <!-- Lista de Equipos -->
+    <div>
+      <div class="panel-header">
+        <span class="panel-title" id="equiposTitle">EQUIPOS</span>
+      </div>
+      <div class="panel-content">
+        <div class="search-row">
+          <input type="text" id="searchEq" placeholder="Buscar equipo...">
+          <button class="btn sm" onclick="filterEquipos()">Filtrar</button>
+          <button class="btn sm" onclick="clearEquipoFilter()">✕</button>
+        </div>
+        <div id="equipoList" class="eq-list"></div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- PANEL DERECHO — Detalle Equipo + Conexiones ─────────── -->
+  <aside id="panel-right">
+
+    <!-- Detalle del Equipo -->
+    <div>
+      <div class="panel-header">
+        <span class="panel-title">DETALLE EQUIPO</span>
+        <button class="btn sm" id="btnEditEquipo" style="display:none"
+          onclick="openEquipoModal(window.__state.equipo)">✏ Editar</button>
+      </div>
+      <div class="panel-content" id="equipoDetail">
+        <div class="placeholder">
+          <div class="placeholder-icon">💾</div>
+          Selecciona un equipo
+        </div>
+      </div>
+    </div>
+
+    <div class="sep" style="margin: 0 14px;"></div>
+
+    <!-- Lista de Conexiones -->
+    <div>
+      <div class="panel-header">
+        <span class="panel-title" id="conexTitle">CONEXIONES</span>
+        <button class="btn sm primary" id="btnNewConex" style="display:none"
+          onclick="openConexModal(null)">＋</button>
+      </div>
+      <div class="panel-content">
+        <div class="search-row">
+          <input type="text" id="searchConn" placeholder="Buscar conexión...">
+          <button class="btn sm" onclick="filterConexiones()">Filtrar</button>
+          <button class="btn sm" onclick="clearConnFilter()">✕</button>
+        </div>
+        <div id="conexList" class="conn-list"></div>
+      </div>
+    </div>
+
+    <div class="sep" style="margin: 0 14px;"></div>
+
+    <!-- Detalle de Conexión -->
+    <div>
+      <div class="panel-header">
+        <span class="panel-title">DETALLE CONEXIÓN</span>
+      </div>
+      <div class="panel-content" id="conexDetail">
+        <div class="placeholder">
+          <div class="placeholder-icon">🔌</div>
+          Selecciona una conexión
+        </div>
+      </div>
+    </div>
+
+  </aside>
+
+</div><!-- /#app -->
+
+<!-- ══════════════════════════════════════════════════════════
+     MODAL / OVERLAY
+══════════════════════════════════════════════════════════ -->
+<div id="overlay">
+  <div class="modal" id="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modalTitle">—</span>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body"   id="modalBody"></div>
+    <div class="modal-footer" id="modalFooter"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     SCRIPTS
+══════════════════════════════════════════════════════════ -->
+
+<!-- Service Worker registration -->
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js')
+        .then(reg => console.log('[SW] Registrado:', reg.scope))
+        .catch(err => console.warn('[SW] Error al registrar:', err));
+    });
+  }
+</script>
+
+<!-- App (ES Module) -->
+<script type="module" src="app.js"></script>
+
+</body>
+</html>
