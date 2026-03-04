@@ -215,14 +215,10 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent2); }
 .rack-item:hover    { background: rgba(255,255,255,0.04); border-color: var(--border); }
 .rack-item.selected { background: rgba(42,91,215,0.15);   border-color: rgba(42,91,215,0.4); }
 
-.rack-id {
-  font-family: var(--mono);
-  font-size: 11px; font-weight: 700;
-  color: var(--accent2); min-width: 36px;
-}
-.rack-info  { flex: 1; min-width: 0; }
+.rack-info  { flex: 1; min-width: 0; overflow: hidden; }
 .rack-name  { font-size: 13px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rack-meta  { font-size: 11px; color: var(--text3); font-family: var(--mono); }
+.rack-meta  { font-size: 11px; color: var(--text3); font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rack-id-inline { color: var(--accent2); font-weight: 700; }
 .rack-ubadge {
   font-family: var(--mono); font-size: 10px;
   padding: 2px 6px; background: var(--bg3);
@@ -602,3 +598,50 @@ body.light .error-text { color: #cc2200; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
 body.light ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.14); }
+
+/* ── Indicador de estado MySQL ──────────────────────────── */
+.sync-badge {
+  font-family: var(--mono);
+  font-size: 11px; font-weight: 700;
+  padding: 3px 10px; border-radius: 6px;
+  border: 1px solid;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: var(--transition);
+}
+.sync-loading { background: rgba(74,158,255,0.10); border-color: rgba(74,158,255,0.30); color: #4a9eff; }
+.sync-ok      { background: rgba(0,200,110,0.10);  border-color: rgba(0,200,110,0.30);  color: #00c86e; }
+.sync-offline { background: rgba(255,255,255,0.05);border-color: rgba(255,255,255,0.15);color: var(--text3); }
+.sync-error   { background: rgba(255,77,0,0.10);   border-color: rgba(255,77,0,0.30);   color: #ff6633; }
+
+body.light .sync-ok      { background: rgba(0,160,80,0.10);  border-color: rgba(0,160,80,0.25);  color: #007030; }
+body.light .sync-error   { background: rgba(200,40,0,0.08);  border-color: rgba(200,40,0,0.25);  color: #aa2200; }
+body.light .sync-offline { background: rgba(0,0,0,0.04);     border-color: rgba(0,0,0,0.14);     color: var(--text3); }
+body.light .sync-loading { background: rgba(42,91,215,0.08); border-color: rgba(42,91,215,0.25); color: var(--accent); }
+
+/* ── Botones de acción en rack items ────────────────────── */
+.rack-actions {
+  display: flex;
+  gap: 3px;
+  opacity: 0;
+  transition: opacity var(--transition);
+  flex-shrink: 0;
+}
+.rack-item:hover .rack-actions,
+.rack-item.selected .rack-actions {
+  opacity: 1;
+}
+.btn-rack-edit,
+.btn-rack-delete {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 2px 6px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text2);
+  transition: var(--transition);
+  line-height: 1.4;
+}
+.btn-rack-edit:hover   { background: rgba(42,91,215,0.2); border-color: rgba(42,91,215,0.4); }
+.btn-rack-delete:hover { background: rgba(255,77,0,0.15); border-color: rgba(255,77,0,0.35); color: #ff6633; }
