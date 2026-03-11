@@ -1,0 +1,9 @@
+LOCACIONES,,SITES,,,RACKS,,,,,EQUIPOS,,,,,,,,
+id,nombre,id,locacion_id,nombre,id,site_id,nombre,ubicacion,unidades,id,rack_id,modelo,numero_serie,puerto_conexion,servicio,estado,u_pos,u_size
+NO SE AGREGA,Sede Principal,NO SE AGREGA,Sede Principal,Site A,NO SE AGREGA,Site A,Rack Core 01,Sala A - Fila 1,42,NO SE AGREGA,Rack Core 01,Cisco Catalyst 9300,FCW2315G00X,Gi1/0/1,Core Network,Activo,,2
+,,NO SE AGREGA,,Site B,NO SE AGREGA,Site B,Rack Edge 01,Sala B - Fila 2,24,NO SE AGREGA,Rack Core 01,Dell PowerEdge R740,SN-00123,eth0,Web Server,Activo,,2
+NO SE AGREGA,Sucursal Norte,NO SE AGREGA,Sucursal Norte,Site C,NO SE AGREGA,Site A,Rack Patch 01,,42,NO SE AGREGA,Rack Core 01,HPE ProLiant DL380,SN-00456,eth0,Database,,
+,,,,,,NO SE AGREGA,Site C,Rack Sur 01,,24,NO SE AGREGA,Rack Edge 01,Fortinet FortiGate 60F,FGT60F0001,WAN1,Firewall,Activo,,1
+,,,,,,,,,,NO SE AGREGA,Rack Edge 01,APC Smart-UPS 1500,APCSN00789,,Facility,,1
+,,,,,,,,,,NO SE AGREGA,Rack Patch 01,Patch Panel 24p,PP-001,,Red Pasiva,Activo,,1
+,,,,,,,,,,NO SE AGREGA,Rack Sur 01,HP ProLiant ML350,HP-SUR-01,eth0,Backup,Inactivo,,2
