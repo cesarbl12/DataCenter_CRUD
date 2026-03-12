@@ -1,4 +1,5 @@
-// import.js — Importacion CSV  (2 modos: Infraestructura | Conexiones)
+// import.js — Importacion CSV por entidad separada
+// Tabs: Locaciones | Sites | Racks | Equipos | Conexiones
 import * as DB from './db.js';
 
 // ─────────────────────────────────────────────────────────────
@@ -26,13 +27,12 @@ function parseCSV(text) {
 // ─────────────────────────────────────────────────────────────
 // UTILS
 // ─────────────────────────────────────────────────────────────
-function c(row, idx, fallback) {
-  if (fallback===undefined) fallback='N/A';
+function cv(row, idx, fallback='N/A') {
   if (idx==null||idx<0||idx>=row.length) return fallback;
   const v=(row[idx]!=null?row[idx]:'').toString().trim();
-  if (v===''||v.toUpperCase()==='NO SE AGREGA') return fallback;
-  return v;
+  return (v==='')?fallback:v;
 }
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 const TIPO_VALIDOS = ['RJ45','SFP+','SFP','Serial','Console','Fiber','USB','Other'];
 function normTipo(raw) {
@@ -40,7 +40,6 @@ function normTipo(raw) {
   const match = TIPO_VALIDOS.find(t=>t.toLowerCase()===raw.trim().toLowerCase());
   return match||'Other';
 }
-function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 // ─────────────────────────────────────────────────────────────
 // RESOLVERS
@@ -66,282 +65,465 @@ function findEquipo(db,id){
 }
 
 // ─────────────────────────────────────────────────────────────
-// PARSE INFRAESTRUCTURA
-// Col 0-1: LOCACIONES (id auto, nombre)
-// Col 2-4: SITES      (id auto, locacion_id, nombre)
-// Col 5-9: RACKS      (id auto, site_id, nombre, ubicacion, unidades)
-// Col 10-18: EQUIPOS  (id auto, rack_id, modelo, serie, puerto, servicio, estado, u_pos, u_size)
+// PARSERS POR ENTIDAD
+// Lee header para encontrar columnas por nombre
 // ─────────────────────────────────────────────────────────────
-function parseInfra(rows, db) {
-  const hasSectionRow = rows[0]&&rows[0].join(',').toUpperCase().includes('LOCACION');
-  const dataStart = hasSectionRow ? 2 : 1;
-  const dataRows  = rows.slice(dataStart).filter(r=>r.some(v=>v.trim()!==''&&v.toUpperCase()!=='NO SE AGREGA'));
 
-  // Indices fijos segun formato CSV
-  const L_NOMBRE=1;
-  const S_LOC_REF=3, S_NOMBRE=4;
-  const R_SITE_REF=6, R_NOMBRE=7, R_UBICACION=8, R_UNIDADES=9;
-  const E_RACK_REF=11,E_MODELO=12,E_SERIE=13,E_PUERTO=14,E_SERVICIO=15,E_ESTADO=16,E_UPOS=17,E_USIZE=18;
-
-  const locaciones=[],sites=[],racks=[],equipos=[];
-  const seenLoc=new Map(),seenSite=new Map(),seenRack=new Map();
-  const autoUPos={};
-
-  dataRows.forEach((row,i)=>{
-    const rowNum=i+dataStart+1;
-
-    // LOCACION
-    const locNombre=c(row,L_NOMBRE,'').trim();
-    let locKey=null;
-    if(locNombre!==''){
-      const key=locNombre.toLowerCase();
-      if(seenLoc.has(key)){locKey=seenLoc.get(key);}
-      else{
-        const exist=findLocacion(db,locNombre);
-        locKey=exist?exist.id:('__LOC__'+locNombre);
-        seenLoc.set(key,locKey);
-        locaciones.push({_row:rowNum,nombre:locNombre,_existId:exist?exist.id:null,_key:locKey});
-      }
-    }
-
-    // SITE
-    const siteNombre=c(row,S_NOMBRE,'').trim();
-    let siteKey=null;
-    if(siteNombre!==''){
-      const key=siteNombre.toLowerCase();
-      if(seenSite.has(key)){siteKey=seenSite.get(key);}
-      else{
-        const exist=findSite(db,siteNombre);
-        let parentLocKey=locKey;
-        if(!parentLocKey){
-          const locRef=c(row,S_LOC_REF,'');
-          if(locRef!==''){const f=[...seenLoc.entries()].find(([k])=>k===locRef.toLowerCase());if(f)parentLocKey=f[1];}
-        }
-        siteKey=exist?exist.id:('__SITE__'+siteNombre);
-        seenSite.set(key,siteKey);
-        sites.push({_row:rowNum,nombre:siteNombre,_locKey:parentLocKey,_existId:exist?exist.id:null,_key:siteKey});
-      }
-    }
-
-    // RACK
-    const rackNombre=c(row,R_NOMBRE,'').trim();
-    let rackKey=null;
-    if(rackNombre!==''){
-      const key=rackNombre.toLowerCase();
-      if(seenRack.has(key)){rackKey=seenRack.get(key);}
-      else{
-        const exist=findRack(db,rackNombre);
-        let parentSiteKey=siteKey;
-        if(!parentSiteKey){
-          const siteRef=c(row,R_SITE_REF,'');
-          if(siteRef!==''){const f=[...seenSite.entries()].find(([k])=>k===siteRef.toLowerCase());if(f)parentSiteKey=f[1];}
-        }
-        const ubicacion=c(row,R_UBICACION,'N/A');
-        const uRaw=c(row,R_UNIDADES,'');
-        const unidades=(uRaw!==''&&parseInt(uRaw)>0)?parseInt(uRaw):42;
-        rackKey=exist?exist.id:('__RACK__'+rackNombre);
-        seenRack.set(key,rackKey);
-        racks.push({_row:rowNum,nombre:rackNombre,ubicacion,unidades,_siteKey:parentSiteKey,_existId:exist?exist.id:null,_key:rackKey});
-        if(!autoUPos[rackKey])autoUPos[rackKey]=1;
-      }
-    }
-
-    // EQUIPO
-    const modelo=c(row,E_MODELO,'').trim();
-    if(modelo!==''){
-      const rackRef=c(row,E_RACK_REF,'');
-      let eqRackKey=rackKey;
-      if(!eqRackKey&&rackRef!==''){
-        const f=[...seenRack.entries()].find(([k])=>k===rackRef.toLowerCase());
-        if(f){eqRackKey=f[1];}
-        else{const er=findRack(db,rackRef);if(er)eqRackKey=er.id;}
-      }
-      const numeroSerie=c(row,E_SERIE,'N/A');
-      const puertoConexion=c(row,E_PUERTO,'N/A');
-      const servicio=c(row,E_SERVICIO,'N/A');
-      const estadoRaw=c(row,E_ESTADO,'');
-      const estado=estadoRaw===''?'Inactivo':estadoRaw;
-      const uSizeRaw=c(row,E_USIZE,'');
-      const uSize=(uSizeRaw!==''&&parseInt(uSizeRaw)>0)?parseInt(uSizeRaw):1;
-      const rk=eqRackKey||'__unknown__';
-      if(!autoUPos[rk])autoUPos[rk]=1;
-      const uPosRaw=c(row,E_UPOS,'');
-      let uPos;
-      if(uPosRaw!==''&&parseInt(uPosRaw)>0){uPos=parseInt(uPosRaw);autoUPos[rk]=uPos+uSize;}
-      else{uPos=autoUPos[rk];autoUPos[rk]+=uSize;}
-      equipos.push({_row:rowNum,modelo,numeroSerie,puertoConexion,servicio,estado,uPos,uSize,_rackKey:eqRackKey});
-    }
-  });
-
-  return {locaciones,sites,racks,equipos};
-}
-
-// ─────────────────────────────────────────────────────────────
-// PARSE CONEXIONES
-// ─────────────────────────────────────────────────────────────
-function parseConexiones(rows) {
-  const header=rows[0]?rows[0].map(h=>h.trim().toLowerCase()):[];
-  const hasHeader=header.some(h=>h.includes('id')||h.includes('equipo')||h.includes('tipo'));
-  const dataRows=hasHeader?rows.slice(1):rows;
-  let iEqId=1,iId=0,iTipo=2,iEst=3,iDest=4;
-  if(hasHeader){
-    header.forEach((h,i)=>{
-      const k=h.replace(/[\s_]/g,'');
-      if(['equipoid','equipo','equipo_id','numeroserie','num_serie','sn','deviceid'].includes(k)) iEqId=i;
-      else if(['id','puerto','idpuerto','port','interface'].includes(k)) iId=i;
-      else if(k==='tipo'||k==='type') iTipo=i;
-      else if(k==='estado'||k==='status'||k==='state') iEst=i;
-      else if(['destino','destination','dest','destino'].includes(k)) iDest=i;
-    });
-  }
-  return dataRows
-    .filter(r=>r.some(v=>v.trim()!==''&&v.toUpperCase()!=='NO SE AGREGA'))
+// LOCACIONES — CSV: nombre
+function parseLocaciones(rows, db) {
+  const header = rows[0].map(h=>h.trim().toLowerCase());
+  const iNombre = header.findIndex(h=>h==='nombre');
+  if (iNombre<0) throw new Error('Columna "nombre" no encontrada en el CSV.');
+  return rows.slice(1)
+    .filter(r=>r.some(v=>v.trim()!==''))
     .map((r,i)=>{
-      const id=c(r,iId,'').trim();
-      const equipoId=c(r,iEqId,'').trim();
-      const tipo=normTipo(c(r,iTipo,''));
-      const estadoRaw=c(r,iEst,'');
-      const estado=estadoRaw===''?'Inactivo':estadoRaw;
-      const destino=c(r,iDest,'N/A');
-      return{_row:i+(hasHeader?2:1),id,equipoId,tipo,estado,destino,_idMissing:!id,_eqMissing:!equipoId};
+      const nombre = cv(r,iNombre,'').trim();
+      const exist  = nombre ? findLocacion(db,nombre) : null;
+      return { _row:i+2, nombre, _existId:exist?exist.id:null, _missing:!nombre };
+    });
+}
+
+// SITES — CSV: nombre, locacion
+function parseSites(rows, db) {
+  const header   = rows[0].map(h=>h.trim().toLowerCase());
+  const iNombre  = header.findIndex(h=>h==='nombre');
+  const iLocNom  = header.findIndex(h=>h==='locacion'||h==='locacion_nombre'||h==='locacion_id');
+  if (iNombre<0) throw new Error('Columna "nombre" no encontrada.');
+  if (iLocNom<0) throw new Error('Columna "locacion" no encontrada.');
+  return rows.slice(1)
+    .filter(r=>r.some(v=>v.trim()!==''))
+    .map((r,i)=>{
+      const nombre  = cv(r,iNombre,'').trim();
+      const locNom  = cv(r,iLocNom,'').trim();
+      const exist   = nombre ? findSite(db,nombre) : null;
+      const locObj  = locNom ? findLocacion(db,locNom) : null;
+      return { _row:i+2, nombre, locacion:locNom,
+               _locId:locObj?locObj.id:null, _existId:exist?exist.id:null,
+               _missingNombre:!nombre, _missingLoc:!locNom, _locNoExiste:!locObj&&!!locNom };
+    });
+}
+
+// RACKS — CSV: nombre, site, ubicacion, unidades
+function parseRacks(rows, db) {
+  const header  = rows[0].map(h=>h.trim().toLowerCase());
+  const iNombre = header.findIndex(h=>h==='nombre');
+  const iSite   = header.findIndex(h=>h==='site'||h==='site_nombre'||h==='site_id');
+  const iUbic   = header.findIndex(h=>h==='ubicacion');
+  const iUnid   = header.findIndex(h=>h==='unidades'||h==='u');
+  if (iNombre<0) throw new Error('Columna "nombre" no encontrada.');
+  if (iSite<0)   throw new Error('Columna "site" no encontrada.');
+  return rows.slice(1)
+    .filter(r=>r.some(v=>v.trim()!==''))
+    .map((r,i)=>{
+      const nombre    = cv(r,iNombre,'').trim();
+      const siteNom   = cv(r,iSite,'').trim();
+      const ubicacion = iUbic>=0 ? cv(r,iUbic,'N/A') : 'N/A';
+      const uRaw      = iUnid>=0 ? cv(r,iUnid,'') : '';
+      const unidades  = (uRaw!==''&&parseInt(uRaw)>0) ? parseInt(uRaw) : 42;
+      const exist     = nombre ? findRack(db,nombre) : null;
+      const siteObj   = siteNom ? findSite(db,siteNom) : null;
+      return { _row:i+2, nombre, site:siteNom, ubicacion, unidades,
+               _siteId:siteObj?siteObj.id:null, _existId:exist?exist.id:null,
+               _missingNombre:!nombre, _missingSite:!siteNom, _siteNoExiste:!siteObj&&!!siteNom };
+    });
+}
+
+// EQUIPOS — CSV: modelo, rack, numero_serie, puerto_conexion, servicio, estado, u_pos, u_size
+function parseEquipos(rows, db) {
+  const header    = rows[0].map(h=>h.trim().toLowerCase());
+  const iModelo   = header.findIndex(h=>h==='modelo');
+  const iRack     = header.findIndex(h=>h==='rack'||h==='rack_nombre'||h==='rack_id');
+  const iSerie    = header.findIndex(h=>h==='numero_serie'||h==='serie'||h==='sn');
+  const iPuerto   = header.findIndex(h=>h==='puerto_conexion'||h==='puerto');
+  const iServicio = header.findIndex(h=>h==='servicio');
+  const iEstado   = header.findIndex(h=>h==='estado');
+  const iUPos     = header.findIndex(h=>h==='u_pos'||h==='upos');
+  const iUSize    = header.findIndex(h=>h==='u_size'||h==='usize'||h==='u');
+  if (iModelo<0) throw new Error('Columna "modelo" no encontrada.');
+  if (iRack<0)   throw new Error('Columna "rack" no encontrada.');
+  const autoUPos = {};
+  return rows.slice(1)
+    .filter(r=>r.some(v=>v.trim()!==''))
+    .map((r,i)=>{
+      const modelo      = cv(r,iModelo,'').trim();
+      const rackNom     = cv(r,iRack,'').trim();
+      const numeroSerie = iSerie>=0    ? cv(r,iSerie,'N/A')    : 'N/A';
+      const puerto      = iPuerto>=0   ? cv(r,iPuerto,'N/A')   : 'N/A';
+      const servicio    = iServicio>=0 ? cv(r,iServicio,'N/A') : 'N/A';
+      const estadoRaw   = iEstado>=0   ? cv(r,iEstado,'')      : '';
+      const estado      = estadoRaw===''?'Inactivo':estadoRaw;
+      const uSizeRaw    = iUSize>=0    ? cv(r,iUSize,'')       : '';
+      const uSize       = (uSizeRaw!==''&&parseInt(uSizeRaw)>0)?parseInt(uSizeRaw):1;
+      const rackObj     = rackNom ? findRack(db,rackNom) : null;
+      const rk          = rackNom.toLowerCase()||'__unknown__';
+      if (!autoUPos[rk]) autoUPos[rk]=1;
+      const uPosRaw     = iUPos>=0 ? cv(r,iUPos,'') : '';
+      let uPos;
+      if (uPosRaw!==''&&parseInt(uPosRaw)>0){uPos=parseInt(uPosRaw);autoUPos[rk]=uPos+uSize;}
+      else {uPos=autoUPos[rk]; autoUPos[rk]+=uSize;}
+      return { _row:i+2, modelo, rack:rackNom, numeroSerie, puerto, servicio, estado, uPos, uSize,
+               _rackId:rackObj?rackObj.id:null, _missingModelo:!modelo, _missingRack:!rackNom,
+               _rackNoExiste:!rackObj&&!!rackNom };
+    });
+}
+
+// CONEXIONES — CSV: equipo_id, id, tipo, estado, destino
+function parseConexiones(rows, db) {
+  const header  = rows[0].map(h=>h.trim().toLowerCase());
+  const iEqId   = header.findIndex(h=>['equipo_id','equipo','numeroserie','sn'].includes(h.replace(/\s/g,'')));
+  const iId     = header.findIndex(h=>h==='id'||h==='puerto');
+  const iTipo   = header.findIndex(h=>h==='tipo'||h==='type');
+  const iEstado = header.findIndex(h=>h==='estado'||h==='status');
+  const iDest   = header.findIndex(h=>h==='destino'||h==='destination');
+  if (iEqId<0) throw new Error('Columna "equipo_id" no encontrada.');
+  if (iId<0)   throw new Error('Columna "id" no encontrada.');
+  if (iTipo<0) throw new Error('Columna "tipo" no encontrada.');
+  return rows.slice(1)
+    .filter(r=>r.some(v=>v.trim()!==''))
+    .map((r,i)=>{
+      const equipoId  = cv(r,iEqId,'').trim();
+      const id        = cv(r,iId,'').trim();
+      const tipo      = normTipo(iTipo>=0?cv(r,iTipo,''):'');
+      const estadoRaw = iEstado>=0 ? cv(r,iEstado,'') : '';
+      const estado    = estadoRaw===''?'Inactivo':estadoRaw;
+      const destino   = iDest>=0 ? cv(r,iDest,'N/A') : 'N/A';
+      const eqObj     = equipoId ? findEquipo(db,equipoId) : null;
+      return { _row:i+2, equipoId, id, tipo, estado, destino,
+               _eqId:eqObj?eqObj.id:null, _missingId:!id, _missingEqId:!equipoId,
+               _eqNoExiste:!eqObj&&!!equipoId };
     });
 }
 
 // ─────────────────────────────────────────────────────────────
-// PREVIEW
+// PREVIEW BUILDERS
 // ─────────────────────────────────────────────────────────────
-function buildPreviewInfra(data) {
-  let html='';
-  if(data.locaciones.length){
-    html+='<div class="preview-section-title">LOCACIONES ('+data.locaciones.length+')</div>';
-    html+='<table><thead><tr><th>#</th><th>Nombre</th><th>Estado</th></tr></thead><tbody>';
-    html+=data.locaciones.map(l=>'<tr><td>'+l._row+'</td><td class="cell-ok">'+esc(l.nombre)+'</td><td class="'+(l._existId?'cell-na':'cell-new')+'">'+(l._existId?'Ya existe ('+l._existId+')':'Nuevo')+'</td></tr>').join('');
-    html+='</tbody></table>';
-  }
-  if(data.sites.length){
-    html+='<div class="preview-section-title">SITES ('+data.sites.length+')</div>';
-    html+='<table><thead><tr><th>#</th><th>Nombre</th><th>Locacion</th><th>Estado</th></tr></thead><tbody>';
-    html+=data.sites.map(s=>'<tr><td>'+s._row+'</td><td class="cell-ok">'+esc(s.nombre)+'</td><td class="'+(s._locKey?'cell-ok':'cell-warn')+'">'+esc(s._locKey||'Sin locacion')+'</td><td class="'+(s._existId?'cell-na':'cell-new')+'">'+(s._existId?'Ya existe':'Nuevo')+'</td></tr>').join('');
-    html+='</tbody></table>';
-  }
-  if(data.racks.length){
-    html+='<div class="preview-section-title">RACKS ('+data.racks.length+')</div>';
-    html+='<table><thead><tr><th>#</th><th>Nombre</th><th>Ubicacion</th><th>U</th><th>Site</th><th>Estado</th></tr></thead><tbody>';
-    html+=data.racks.map(r=>'<tr><td>'+r._row+'</td><td class="cell-ok">'+esc(r.nombre)+'</td><td class="'+(r.ubicacion==='N/A'?'cell-na':'cell-ok')+'">'+esc(r.ubicacion)+'</td><td class="'+(r.unidades===42?'cell-na':'cell-ok')+'">'+r.unidades+'</td><td class="'+(r._siteKey?'cell-ok':'cell-warn')+'">'+esc(r._siteKey||'Sin site')+'</td><td class="'+(r._existId?'cell-na':'cell-new')+'">'+(r._existId?'Ya existe':'Nuevo')+'</td></tr>').join('');
-    html+='</tbody></table>';
-  }
-  if(data.equipos.length){
-    html+='<div class="preview-section-title">EQUIPOS ('+data.equipos.length+')</div>';
-    html+='<table><thead><tr><th>#</th><th>Modelo</th><th>N Serie</th><th>Puerto</th><th>Servicio</th><th>Estado</th><th>uPos</th><th>uSz</th><th>Rack</th></tr></thead><tbody>';
-    html+=data.equipos.map(e=>'<tr><td>'+e._row+'</td><td class="cell-ok">'+esc(e.modelo)+'</td><td class="'+(e.numeroSerie==='N/A'?'cell-na':'cell-ok')+'">'+esc(e.numeroSerie)+'</td><td class="'+(e.puertoConexion==='N/A'?'cell-na':'cell-ok')+'">'+esc(e.puertoConexion)+'</td><td class="'+(e.servicio==='N/A'?'cell-na':'cell-ok')+'">'+esc(e.servicio)+'</td><td class="'+(e.estado==='Inactivo'?'cell-na':'cell-ok')+'">'+esc(e.estado)+'</td><td class="cell-ok">'+e.uPos+'</td><td class="'+(e.uSize===1?'cell-na':'cell-ok')+'">'+e.uSize+'</td><td class="'+(e._rackKey?'cell-ok':'cell-warn')+'">'+esc(e._rackKey||'Sin rack')+'</td></tr>').join('');
-    html+='</tbody></table>';
-  }
-  if(!data.locaciones.length&&!data.sites.length&&!data.racks.length&&!data.equipos.length)
-    html='<div class="import-hint">No se detectaron datos validos. Revisa el formato del CSV.</div>';
-  return html;
+function previewLocaciones(data) {
+  if (!data.length) return '<div class="import-hint">Sin datos.</div>';
+  let html='<table><thead><tr><th>#</th><th>Nombre</th><th>Estado</th></tr></thead><tbody>';
+  html+=data.map(l=>`<tr>
+    <td>${l._row}</td>
+    <td class="${l._missing?'cell-warn':'cell-ok'}">${esc(l.nombre||'(vacío)')}</td>
+    <td class="${l._existId?'cell-na':l._missing?'cell-warn':'cell-new'}">${l._missing?'⚠ Nombre requerido':l._existId?'Ya existe ('+l._existId+')':'Nuevo'}</td>
+  </tr>`).join('');
+  return html+'</tbody></table>';
 }
 
-function buildPreviewConexiones(data) {
-  if(!data.length) return '<div class="import-hint">Sin conexiones para previsualizar.</div>';
-  let html='<table><thead><tr><th>#</th><th>EquipoId</th><th>Id/Puerto</th><th>Tipo</th><th>Estado</th><th>Destino</th></tr></thead><tbody>';
-  html+=data.slice(0,60).map(c=>'<tr><td>'+c._row+'</td><td class="'+(c._eqMissing?'cell-warn':'cell-ok')+'">'+esc(c.equipoId||'(vacio)')+'</td><td class="'+(c._idMissing?'cell-warn':'cell-ok')+'">'+esc(c.id||'(vacio)')+'</td><td class="cell-ok">'+esc(c.tipo)+'</td><td class="'+(c.estado==='Inactivo'?'cell-na':'cell-ok')+'">'+esc(c.estado)+'</td><td class="'+(c.destino==='N/A'?'cell-na':'cell-ok')+'">'+esc(c.destino)+'</td></tr>').join('');
+function previewSites(data) {
+  if (!data.length) return '<div class="import-hint">Sin datos.</div>';
+  let html='<table><thead><tr><th>#</th><th>Nombre</th><th>Locacion</th><th>Estado</th></tr></thead><tbody>';
+  html+=data.map(s=>`<tr>
+    <td>${s._row}</td>
+    <td class="${s._missingNombre?'cell-warn':'cell-ok'}">${esc(s.nombre||'(vacío)')}</td>
+    <td class="${s._missingLoc||s._locNoExiste?'cell-warn':'cell-ok'}">${s._missingLoc?'⚠ Requerida':s._locNoExiste?'⚠ No existe: '+esc(s.locacion):esc(s.locacion)}</td>
+    <td class="${s._existId?'cell-na':s._missingNombre||s._missingLoc||s._locNoExiste?'cell-warn':'cell-new'}">${s._existId?'Ya existe':s._missingNombre||s._missingLoc||s._locNoExiste?'⚠ Con error':'Nuevo'}</td>
+  </tr>`).join('');
+  return html+'</tbody></table>';
+}
+
+function previewRacks(data) {
+  if (!data.length) return '<div class="import-hint">Sin datos.</div>';
+  let html='<table><thead><tr><th>#</th><th>Nombre</th><th>Site</th><th>Ubicacion</th><th>U</th><th>Estado</th></tr></thead><tbody>';
+  html+=data.map(r=>`<tr>
+    <td>${r._row}</td>
+    <td class="${r._missingNombre?'cell-warn':'cell-ok'}">${esc(r.nombre||'(vacío)')}</td>
+    <td class="${r._missingSite||r._siteNoExiste?'cell-warn':'cell-ok'}">${r._missingSite?'⚠ Requerido':r._siteNoExiste?'⚠ No existe: '+esc(r.site):esc(r.site)}</td>
+    <td class="${r.ubicacion==='N/A'?'cell-na':'cell-ok'}">${esc(r.ubicacion)}</td>
+    <td class="${r.unidades===42?'cell-na':'cell-ok'}">${r.unidades}</td>
+    <td class="${r._existId?'cell-na':r._missingNombre||r._missingSite||r._siteNoExiste?'cell-warn':'cell-new'}">${r._existId?'Ya existe':r._missingNombre||r._missingSite||r._siteNoExiste?'⚠ Con error':'Nuevo'}</td>
+  </tr>`).join('');
+  return html+'</tbody></table>';
+}
+
+function previewEquipos(data) {
+  if (!data.length) return '<div class="import-hint">Sin datos.</div>';
+  let html='<table><thead><tr><th>#</th><th>Modelo</th><th>Rack</th><th>N° Serie</th><th>Servicio</th><th>Estado</th><th>uPos</th><th>uSz</th></tr></thead><tbody>';
+  html+=data.map(e=>`<tr>
+    <td>${e._row}</td>
+    <td class="${e._missingModelo?'cell-warn':'cell-ok'}">${esc(e.modelo||'(vacío)')}</td>
+    <td class="${e._missingRack||e._rackNoExiste?'cell-warn':'cell-ok'}">${e._missingRack?'⚠ Requerido':e._rackNoExiste?'⚠ No existe: '+esc(e.rack):esc(e.rack)}</td>
+    <td class="${e.numeroSerie==='N/A'?'cell-na':'cell-ok'}">${esc(e.numeroSerie)}</td>
+    <td class="${e.servicio==='N/A'?'cell-na':'cell-ok'}">${esc(e.servicio)}</td>
+    <td class="${e.estado==='Inactivo'?'cell-na':'cell-ok'}">${esc(e.estado)}</td>
+    <td class="cell-ok">${e.uPos}</td>
+    <td class="${e.uSize===1?'cell-na':'cell-ok'}">${e.uSize}</td>
+  </tr>`).join('');
+  return html+'</tbody></table>';
+}
+
+function previewConexiones(data) {
+  if (!data.length) return '<div class="import-hint">Sin conexiones.</div>';
+  let html='<table><thead><tr><th>#</th><th>Equipo ID</th><th>Puerto</th><th>Tipo</th><th>Estado</th><th>Destino</th></tr></thead><tbody>';
+  html+=data.slice(0,80).map(c=>`<tr>
+    <td>${c._row}</td>
+    <td class="${c._missingEqId||c._eqNoExiste?'cell-warn':'cell-ok'}">${c._missingEqId?'⚠ Vacío':c._eqNoExiste?'⚠ No existe: '+esc(c.equipoId):esc(c.equipoId)}</td>
+    <td class="${c._missingId?'cell-warn':'cell-ok'}">${esc(c.id||'⚠ Vacío')}</td>
+    <td class="cell-ok">${esc(c.tipo)}</td>
+    <td class="${c.estado==='Inactivo'?'cell-na':'cell-ok'}">${esc(c.estado)}</td>
+    <td class="${c.destino==='N/A'?'cell-na':'cell-ok'}">${esc(c.destino)}</td>
+  </tr>`).join('');
   html+='</tbody></table>';
-  if(data.length>60) html+='<div class="import-hint">Mostrando 60 de '+data.length+' filas.</div>';
+  if (data.length>80) html+=`<div class="import-hint">Mostrando 80 de ${data.length} filas.</div>`;
   return html;
 }
 
 // ─────────────────────────────────────────────────────────────
-// IMPORTACION — INFRAESTRUCTURA
+// IMPORTADORES POR ENTIDAD
 // ─────────────────────────────────────────────────────────────
-async function importInfra(db, data) {
-  let ok=0;
-  const errors=[];
-  const keyToId={};
-
-  for(const loc of data.locaciones){
-    if(loc._existId){keyToId[loc._key]=loc._existId;continue;}
-    try{const created=await DB.insertLocacion(db,{nombre:loc.nombre});keyToId[loc._key]=created.id;ok++;}
-    catch(e){errors.push('Locacion "'+loc.nombre+'" (fila '+loc._row+'): '+e.message);}
+async function importLocaciones(db, data) {
+  let ok=0; const errors=[];
+  for (const loc of data) {
+    if (loc._missing)  { errors.push(`Fila ${loc._row}: nombre vacío.`); continue; }
+    if (loc._existId)  { errors.push(`Fila ${loc._row}: "${loc.nombre}" ya existe (omitido).`); continue; }
+    try { await DB.insertLocacion(db,{nombre:loc.nombre}); ok++; }
+    catch(e) { errors.push(`Fila ${loc._row} "${loc.nombre}": ${e.message}`); }
   }
-  for(const site of data.sites){
-    if(site._existId){keyToId[site._key]=site._existId;continue;}
-    const locacionId=site._locKey?(keyToId[site._locKey]||null):null;
-    if(!locacionId){errors.push('Site "'+site.nombre+'" (fila '+site._row+'): sin locacion resuelta.');continue;}
-    try{const created=await DB.insertSite(db,{locacionId,nombre:site.nombre});keyToId[site._key]=created.id;ok++;}
-    catch(e){errors.push('Site "'+site.nombre+'" (fila '+site._row+'): '+e.message);}
-  }
-  for(const rack of data.racks){
-    if(rack._existId){keyToId[rack._key]=rack._existId;continue;}
-    const siteId=rack._siteKey?(keyToId[rack._siteKey]||null):null;
-    if(!siteId){errors.push('Rack "'+rack.nombre+'" (fila '+rack._row+'): sin site resuelto.');continue;}
-    try{const created=await DB.insertRack(db,{siteId,nombre:rack.nombre,ubicacion:rack.ubicacion,unidades:rack.unidades});keyToId[rack._key]=created.id;ok++;}
-    catch(e){errors.push('Rack "'+rack.nombre+'" (fila '+rack._row+'): '+e.message);}
-  }
-  if(data.racks.length>0) await DB.loadFromServer(db);
-  for(const eq of data.equipos){
-    let rackId=eq._rackKey?(keyToId[eq._rackKey]||null):null;
-    if(!rackId&&eq._rackKey&&!eq._rackKey.startsWith('__RACK__'))rackId=eq._rackKey;
-    if(!rackId){errors.push('Equipo "'+eq.modelo+'" (fila '+eq._row+'): sin rack resuelto.');continue;}
-    try{await DB.insertEquipo(db,{rackId,modelo:eq.modelo,numeroSerie:eq.numeroSerie,puertoConexion:eq.puertoConexion,servicio:eq.servicio,estado:eq.estado,uPos:eq.uPos,uSize:eq.uSize});ok++;}
-    catch(e){errors.push('Equipo "'+eq.modelo+'" (fila '+eq._row+'): '+e.message);}
-  }
-  return{ok,err:errors.length,errors};
+  return {ok, err:errors.length, errors};
 }
 
-// ─────────────────────────────────────────────────────────────
-// IMPORTACION — CONEXIONES
-// ─────────────────────────────────────────────────────────────
+async function importSites(db, data) {
+  let ok=0; const errors=[];
+  for (const s of data) {
+    if (s._missingNombre) { errors.push(`Fila ${s._row}: nombre vacío.`); continue; }
+    if (s._missingLoc)    { errors.push(`Fila ${s._row} "${s.nombre}": locacion vacía.`); continue; }
+    if (s._locNoExiste)   { errors.push(`Fila ${s._row} "${s.nombre}": locacion "${s.locacion}" no existe.`); continue; }
+    if (s._existId)       { errors.push(`Fila ${s._row}: "${s.nombre}" ya existe (omitido).`); continue; }
+    const locObj = findLocacion(db, s.locacion);
+    if (!locObj) { errors.push(`Fila ${s._row}: locacion "${s.locacion}" no encontrada.`); continue; }
+    try { await DB.insertSite(db,{locacionId:locObj.id, nombre:s.nombre}); ok++; }
+    catch(e) { errors.push(`Fila ${s._row} "${s.nombre}": ${e.message}`); }
+  }
+  return {ok, err:errors.length, errors};
+}
+
+async function importRacks(db, data) {
+  let ok=0; const errors=[];
+  for (const r of data) {
+    if (r._missingNombre) { errors.push(`Fila ${r._row}: nombre vacío.`); continue; }
+    if (r._missingSite)   { errors.push(`Fila ${r._row} "${r.nombre}": site vacío.`); continue; }
+    if (r._siteNoExiste)  { errors.push(`Fila ${r._row} "${r.nombre}": site "${r.site}" no existe.`); continue; }
+    if (r._existId)       { errors.push(`Fila ${r._row}: "${r.nombre}" ya existe (omitido).`); continue; }
+    const siteObj = findSite(db, r.site);
+    if (!siteObj) { errors.push(`Fila ${r._row}: site "${r.site}" no encontrado.`); continue; }
+    try { await DB.insertRack(db,{siteId:siteObj.id, nombre:r.nombre, ubicacion:r.ubicacion, unidades:r.unidades}); ok++; }
+    catch(e) { errors.push(`Fila ${r._row} "${r.nombre}": ${e.message}`); }
+  }
+  return {ok, err:errors.length, errors};
+}
+
+async function importEquipos(db, data) {
+  let ok=0; const errors=[];
+  for (const e of data) {
+    if (e._missingModelo) { errors.push(`Fila ${e._row}: modelo vacío.`); continue; }
+    if (e._missingRack)   { errors.push(`Fila ${e._row} "${e.modelo}": rack vacío.`); continue; }
+    if (e._rackNoExiste)  { errors.push(`Fila ${e._row} "${e.modelo}": rack "${e.rack}" no existe.`); continue; }
+    const rackObj = findRack(db, e.rack);
+    if (!rackObj) { errors.push(`Fila ${e._row}: rack "${e.rack}" no encontrado.`); continue; }
+    try {
+      await DB.insertEquipo(db,{rackId:rackObj.id, modelo:e.modelo, numeroSerie:e.numeroSerie,
+        puertoConexion:e.puerto, servicio:e.servicio, estado:e.estado, uPos:e.uPos, uSize:e.uSize});
+      ok++;
+    }
+    catch(e2) { errors.push(`Fila ${e._row} "${e.modelo}": ${e2.message}`); }
+  }
+  return {ok, err:errors.length, errors};
+}
+
 async function importConexiones(db, data) {
-  let ok=0;
-  const errors=[];
-  for(const conn of data){
-    if(conn._idMissing){errors.push('Fila '+conn._row+': id/puerto es obligatorio.');continue;}
-    if(conn._eqMissing){errors.push('Fila '+conn._row+': equipo_id es obligatorio.');continue;}
-    const equipo=findEquipo(db,conn.equipoId);
-    if(!equipo){errors.push('Fila '+conn._row+': equipo "'+conn.equipoId+'" no existe en la BD.');continue;}
-    try{await DB.insertConexion(db,{id:conn.id,equipoId:equipo.id,tipo:conn.tipo,estado:conn.estado,destino:conn.destino});ok++;}
-    catch(e){errors.push('Fila '+conn._row+' ('+conn.id+'): '+e.message);}
+  let ok=0; const errors=[];
+  for (const conn of data) {
+    if (conn._missingId)   { errors.push(`Fila ${conn._row}: id/puerto vacío.`); continue; }
+    if (conn._missingEqId) { errors.push(`Fila ${conn._row}: equipo_id vacío.`); continue; }
+    if (conn._eqNoExiste)  { errors.push(`Fila ${conn._row}: equipo "${conn.equipoId}" no existe.`); continue; }
+    const eqObj = findEquipo(db, conn.equipoId);
+    if (!eqObj) { errors.push(`Fila ${conn._row}: equipo "${conn.equipoId}" no encontrado.`); continue; }
+    try { await DB.insertConexion(db,{id:conn.id, equipoId:eqObj.id, tipo:conn.tipo, estado:conn.estado, destino:conn.destino}); ok++; }
+    catch(e) { errors.push(`Fila ${conn._row} "${conn.id}": ${e.message}`); }
   }
-  return{ok,err:errors.length,errors};
+  return {ok, err:errors.length, errors};
 }
 
 // ─────────────────────────────────────────────────────────────
-// HINTS
+// CONFIG DE TABS — define cada pestaña de forma declarativa
 // ─────────────────────────────────────────────────────────────
-const HINT_INFRA = '<b>Formato CSV Infraestructura</b> — columnas en orden:<br>'
-  + '<span class="hint-col">id</span><span class="hint-col">nombre</span>'
-  + '<span class="hint-sep">|</span>'
-  + '<span class="hint-col">id</span><span class="hint-col">locacion_id</span><span class="hint-col">nombre</span>'
-  + '<span class="hint-sep">|</span>'
-  + '<span class="hint-col">id</span><span class="hint-col">site_id</span><span class="hint-col">nombre</span><span class="hint-col">ubicacion</span><span class="hint-col">unidades</span>'
-  + '<span class="hint-sep">|</span>'
-  + '<span class="hint-col">id</span><span class="hint-col">rack_id</span><span class="hint-col">modelo</span><span class="hint-col">serie</span><span class="hint-col">puerto</span><span class="hint-col">servicio</span><span class="hint-col">estado</span><span class="hint-col">u_pos</span><span class="hint-col">u_size</span><br>'
-  + 'Los campos <b>id</b> se ignoran. Celdas vacias usan valores por defecto.';
+const TABS = {
+  locaciones: {
+    label: 'Locaciones', emoji: '🏢',
+    parse:   (rows,db) => parseLocaciones(rows,db),
+    preview: (data)    => previewLocaciones(data),
+    import:  (db,data) => importLocaciones(db,data),
+    stats:   (data)    => ({
+      Registros: data.length,
+      Nuevos: data.filter(d=>!d._existId&&!d._missing).length,
+      'Ya existen': data.filter(d=>d._existId).length,
+      Errores: data.filter(d=>d._missing).length,
+    }),
+    hint: {
+      title: 'Locaciones',
+      note:  'Una locacion es una sede fisica (edificio, ciudad). Solo requiere <b>nombre</b>.',
+      cols:  [{ name:'nombre', req:true, desc:'Nombre de la sede fisica' }],
+      example: [['Sede Central'],['Sucursal Norte'],['DataCenter MTY']],
+    },
+  },
+  sites: {
+    label: 'Sites', emoji: '📍',
+    parse:   (rows,db) => parseSites(rows,db),
+    preview: (data)    => previewSites(data),
+    import:  (db,data) => importSites(db,data),
+    stats:   (data)    => ({
+      Registros: data.length,
+      Nuevos: data.filter(d=>!d._existId&&!d._missingNombre&&!d._locNoExiste).length,
+      'Ya existen': data.filter(d=>d._existId).length,
+      Errores: data.filter(d=>d._missingNombre||d._missingLoc||d._locNoExiste).length,
+    }),
+    hint: {
+      title: 'Sites',
+      note:  'Un site es una sala o zona dentro de una locacion. La <b>locacion debe existir</b> primero en la BD.',
+      cols:  [
+        { name:'nombre',   req:true,  desc:'Nombre del site' },
+        { name:'locacion', req:true,  desc:'Nombre exacto de la locacion padre' },
+      ],
+      example: [['Site Core','Sede Central'],['Site Edge','Sede Central'],['Site GDL','Sucursal Norte']],
+    },
+  },
+  racks: {
+    label: 'Racks', emoji: '🗄️',
+    parse:   (rows,db) => parseRacks(rows,db),
+    preview: (data)    => previewRacks(data),
+    import:  (db,data) => importRacks(db,data),
+    stats:   (data)    => ({
+      Registros: data.length,
+      Nuevos: data.filter(d=>!d._existId&&!d._missingNombre&&!d._siteNoExiste).length,
+      'Ya existen': data.filter(d=>d._existId).length,
+      Errores: data.filter(d=>d._missingNombre||d._missingSite||d._siteNoExiste).length,
+    }),
+    hint: {
+      title: 'Racks',
+      note:  'El <b>site debe existir</b> primero. <b>ubicacion</b> y <b>unidades</b> son opcionales (default: N/A y 42U).',
+      cols:  [
+        { name:'nombre',    req:true,  desc:'Nombre del rack' },
+        { name:'site',      req:true,  desc:'Nombre exacto del site padre' },
+        { name:'ubicacion', req:false, desc:'Fila / sala fisica' },
+        { name:'unidades',  req:false, desc:'Altura en U (default 42)' },
+      ],
+      example: [['Rack-Core-01','Site Core','Sala Fria A','42'],['Rack-Edge-01','Site Edge','Sala B','24'],['Rack-01','Site GDL','','']],
+    },
+  },
+  equipos: {
+    label: 'Equipos', emoji: '🖥️',
+    parse:   (rows,db) => parseEquipos(rows,db),
+    preview: (data)    => previewEquipos(data),
+    import:  (db,data) => importEquipos(db,data),
+    stats:   (data)    => ({
+      Registros: data.length,
+      Validos: data.filter(d=>!d._missingModelo&&!d._rackNoExiste).length,
+      Errores: data.filter(d=>d._missingModelo||d._missingRack||d._rackNoExiste).length,
+    }),
+    hint: {
+      title: 'Equipos',
+      note:  'El <b>rack debe existir</b>. <b>u_pos</b> vacío = asignación automática secuencial.',
+      cols:  [
+        { name:'modelo',          req:true,  desc:'Modelo del equipo' },
+        { name:'rack',            req:true,  desc:'Nombre exacto del rack' },
+        { name:'numero_serie',    req:false, desc:'Número de serie (default N/A)' },
+        { name:'puerto_conexion', req:false, desc:'Puerto principal (default N/A)' },
+        { name:'servicio',        req:false, desc:'Descripcion del servicio' },
+        { name:'estado',          req:false, desc:'Activo / Inactivo (default Inactivo)' },
+        { name:'u_pos',           req:false, desc:'Posicion en rack (default auto)' },
+        { name:'u_size',          req:false, desc:'Altura en U (default 1)' },
+      ],
+      example: [
+        ['Cisco Nexus 9300','Rack-Core-01','SN-001','Te1/0/1','Core LAN','Activo','1','2'],
+        ['Dell PowerEdge R750','Rack-Core-01','SN-002','eth0','Servidor DB','Activo','','2'],
+        ['APC Smart-UPS 3000','Rack-Core-01','','','Energia','Activo','','2'],
+      ],
+    },
+  },
+  conexiones: {
+    label: 'Conexiones', emoji: '🔌',
+    parse:   (rows,db) => parseConexiones(rows,db),
+    preview: (data)    => previewConexiones(data),
+    import:  (db,data) => importConexiones(db,data),
+    stats:   (data)    => ({
+      Registros: data.length,
+      Validos: data.filter(d=>!d._missingId&&!d._eqNoExiste).length,
+      Errores: data.filter(d=>d._missingId||d._missingEqId||d._eqNoExiste).length,
+    }),
+    hint: {
+      title: 'Conexiones',
+      note:  '<b>equipo_id</b> acepta numero de serie, ID interno o modelo. El equipo debe existir en BD.',
+      cols:  [
+        { name:'equipo_id', req:true,  desc:'N° de serie o ID del equipo' },
+        { name:'id',        req:true,  desc:'Identificador del puerto (ej. Gi1/0/1)' },
+        { name:'tipo',      req:true,  desc:'RJ45 · SFP+ · SFP · Serial · Console · Fiber · USB · Other' },
+        { name:'estado',    req:false, desc:'Activo / Inactivo (default Inactivo)' },
+        { name:'destino',   req:false, desc:'serie_destino:puerto (default N/A)' },
+      ],
+      example: [
+        ['SN-001','Te1/0/1','SFP+','Activo','SN-002:Te1/0/1'],
+        ['SN-001','mgmt','RJ45','Activo',''],
+        ['SN-002','eth0','RJ45','Inactivo',''],
+      ],
+    },
+  },
+};
 
-const HINT_CONN = '<b>Formato CSV Conexiones</b> — columnas: '
-  + '<span class="hint-col">equipo_id</span><span class="hint-col">id/puerto</span><span class="hint-col">tipo</span><span class="hint-col">estado</span><span class="hint-col">destino</span><br>'
-  + 'Tipo valido: RJ45, SFP+, SFP, Serial, Console, Fiber, USB — otro valor va a <i>Other</i><br>'
-  + 'Estado vacio → <i>Inactivo</i> &nbsp;·&nbsp; Destino vacio → <i>N/A</i>';
+// ─────────────────────────────────────────────────────────────
+// HINT BUILDER — genera la tabla de formato desde config
+// ─────────────────────────────────────────────────────────────
+function buildHint(cfg) {
+  const { title, note, cols, example } = cfg;
+  const colHeaders = cols.map(c=>
+    `<th class="${c.req?'hint-th-req':'hint-th-opt'}">${c.name}${c.req?'':' <span class="hint-opt-mark">opt</span>'}</th>`
+  ).join('');
+  const descRow = cols.map(c=>
+    `<td class="hint-td hint-desc-val">${esc(c.desc)}</td>`
+  ).join('');
+  const exRows = example.map(row=>
+    '<tr>'+cols.map((_,i)=>`<td class="hint-td hint-ex-val">${esc(row[i]||'')}</td>`).join('')+'</tr>'
+  ).join('');
+  return `
+    <b>CSV — ${title}</b>
+    <div class="hint-note">${note}</div>
+    <table class="hint-table">
+      <thead>
+        <tr>${colHeaders}</tr>
+        <tr class="hint-desc-row">${descRow}</tr>
+      </thead>
+      <tbody>
+        <tr class="hint-ex-label"><td colspan="${cols.length}">↓ Ejemplo de datos</td></tr>
+        ${exRows}
+      </tbody>
+    </table>
+    <div class="hint-legend">
+      <span class="hint-leg-item"><span class="hint-leg-dot hint-req-dot"></span>campo requerido</span>
+      <span class="hint-leg-item"><span class="hint-leg-dot hint-opt-dot"></span>opcional — vacío usa valor por defecto</span>
+    </div>`;
+}
 
 // ─────────────────────────────────────────────────────────────
 // MODAL
 // ─────────────────────────────────────────────────────────────
 export function openImportModal(db, onDone) {
-  let activeTab = 'infra';
+  let activeTab = 'locaciones';
   let parsedData = null;
-  let rawRows = null;
 
-  const { openModal, closeModal } = window._modalAPI;
+  const { openModal } = window._modalAPI;
+
+  function getTabsHTML() {
+    return '<div class="import-tabs">'
+      + Object.entries(TABS).map(([key,t])=>
+          `<div class="import-tab${activeTab===key?' active':''}" data-tab="${key}">${t.emoji} ${t.label}</div>`
+        ).join('')
+      + '</div>';
+  }
 
   function getHTML() {
-    return '<div class="import-tabs">'
-      + '<div class="import-tab '+(activeTab==='infra'?'active':'')+'" data-tab="infra">Infraestructura</div>'
-      + '<div class="import-tab '+(activeTab==='conexiones'?'active':'')+'" data-tab="conexiones">Conexiones</div>'
-      + '</div>'
-      + '<div class="import-hint-block">'+(activeTab==='infra'?HINT_INFRA:HINT_CONN)+'</div>'
+    const tab = TABS[activeTab];
+    return getTabsHTML()
+      + `<div class="import-hint-block">${buildHint(tab.hint)}</div>`
       + '<div class="import-drop-zone" id="importDropZone">'
       + '<div class="drop-icon">&#128194;</div>'
-      + '<div>Arrastra tu archivo <b>.csv</b> aqui</div>'
+      + `<div>Arrastra tu CSV de <b>${tab.label}</b> aqui</div>`
       + '<div style="margin-top:6px;opacity:.6">o haz clic para seleccionar</div>'
       + '<input type="file" id="importFileInput" accept=".csv" style="display:none">'
       + '</div>'
@@ -353,16 +535,16 @@ export function openImportModal(db, onDone) {
   }
 
   function getFooter() {
-    return '<button class="btn" onclick="closeModal()">X Cancelar</button>'
-      + '<button class="btn" id="btnImportClear" style="display:none" onclick="window._importClear()">Limpiar</button>'
-      + '<button class="btn primary" id="btnImportRun" disabled onclick="window._importRun()">Importar</button>';
+    return '<button class="btn" onclick="closeModal()">✕ Cancelar</button>'
+      + '<button class="btn" id="btnImportClear" style="display:none" onclick="window._importClear()">↺ Limpiar</button>'
+      + '<button class="btn primary" id="btnImportRun" disabled onclick="window._importRun()">⬆ Importar</button>';
   }
 
   openModal('IMPORTAR CSV', getHTML(), getFooter());
 
   function showResult(type, msg) {
     const el=document.getElementById('importResult');
-    if(!el)return;
+    if (!el) return;
     el.className='import-result '+type;
     el.innerHTML=msg;
     el.style.display='';
@@ -370,46 +552,38 @@ export function openImportModal(db, onDone) {
 
   function updateStats(obj) {
     const el=document.getElementById('importStats');
-    if(!el)return;
-    el.innerHTML=Object.entries(obj).map(([k,v])=>'<div class="import-stat">'+k+': <b>'+v+'</b></div>').join('');
+    if (!el) return;
+    el.innerHTML=Object.entries(obj).map(([k,v])=>`<div class="import-stat">${k}: <b>${v}</b></div>`).join('');
   }
 
   function renderPreview() {
     const wrap=document.getElementById('importPreviewWrap');
     const prev=document.getElementById('importPreview');
-    if(!parsedData)return;
-    if(activeTab==='infra'){
-      const d=parsedData;
-      updateStats({Locaciones:d.locaciones.length,Sites:d.sites.length,Racks:d.racks.length,Equipos:d.equipos.length});
-      prev.innerHTML=buildPreviewInfra(d);
-      document.getElementById('btnImportRun').disabled=false;
-    } else {
-      const missing=parsedData.filter(c=>c._idMissing||c._eqMissing);
-      updateStats({Conexiones:parsedData.length,'Sin id/equipo':missing.length});
-      prev.innerHTML=buildPreviewConexiones(parsedData);
-      document.getElementById('btnImportRun').disabled=parsedData.length===0;
-    }
+    if (!parsedData||!wrap||!prev) return;
+    const tab = TABS[activeTab];
+    updateStats(tab.stats(parsedData));
+    prev.innerHTML = tab.preview(parsedData);
     wrap.style.display='';
+    document.getElementById('btnImportRun').disabled = parsedData.length===0;
   }
 
   function loadFile(file) {
-    if(!file.name.toLowerCase().endsWith('.csv')){showResult('error','Solo se aceptan archivos .csv');return;}
+    if (!file.name.toLowerCase().endsWith('.csv')) { showResult('error','Solo se aceptan archivos .csv'); return; }
     const reader=new FileReader();
     reader.onload=ev=>{
-      try{
-        rawRows=parseCSV(ev.target.result);
-        if(rawRows.length<2){showResult('error','Archivo vacio o sin datos.');return;}
-        parsedData=activeTab==='infra'?parseInfra(rawRows,db):parseConexiones(rawRows);
+      try {
+        const rows=parseCSV(ev.target.result);
+        if (rows.length<2) { showResult('error','Archivo vacío o sin datos.'); return; }
+        parsedData = TABS[activeTab].parse(rows, db);
         const zone=document.getElementById('importDropZone');
-        zone.innerHTML='<div class="drop-icon">&#9989;</div><div><b>'+file.name+'</b></div><div style="opacity:.6;margin-top:4px;">'+(rawRows.length-2)+' filas de datos</div>';
+        zone.innerHTML=`<div class="drop-icon">&#9989;</div><div><b>${esc(file.name)}</b></div><div style="opacity:.6;margin-top:4px;">${rows.length-1} filas detectadas</div>`;
         zone.style.borderColor='rgba(0,200,110,0.5)';
         zone.style.background='rgba(0,200,110,0.04)';
         zone.onclick=null;
         renderPreview();
         document.getElementById('btnImportClear').style.display='';
         document.getElementById('importResult').style.display='none';
-        document.getElementById('btnImportRun').disabled=false;
-      }catch(err){showResult('error','Error al parsear el CSV: '+err.message);}
+      } catch(err) { showResult('error','Error al parsear: '+err.message); }
     };
     reader.readAsText(file,'UTF-8');
   }
@@ -418,7 +592,7 @@ export function openImportModal(db, onDone) {
     document.querySelectorAll('.import-tab').forEach(tab=>{
       tab.onclick=()=>{
         activeTab=tab.dataset.tab;
-        parsedData=rawRows=null;
+        parsedData=null;
         document.getElementById('modalBody').innerHTML=getHTML();
         document.getElementById('btnImportRun').disabled=true;
         document.getElementById('btnImportClear').style.display='none';
@@ -435,7 +609,7 @@ export function openImportModal(db, onDone) {
   }
 
   window._importClear=()=>{
-    parsedData=rawRows=null;
+    parsedData=null;
     document.getElementById('modalBody').innerHTML=getHTML();
     document.getElementById('btnImportRun').disabled=true;
     document.getElementById('btnImportClear').style.display='none';
@@ -443,29 +617,30 @@ export function openImportModal(db, onDone) {
   };
 
   window._importRun=async()=>{
-    if(!parsedData)return;
+    if (!parsedData) return;
     const btnRun=document.getElementById('btnImportRun');
     const btnClear=document.getElementById('btnImportClear');
     btnRun.disabled=true;
     btnRun.textContent='Importando...';
-    if(btnClear)btnClear.style.display='none';
-    try{
-      const result=activeTab==='infra'
-        ?await importInfra(db,parsedData)
-        :await importConexiones(db,parsedData);
+    if (btnClear) btnClear.style.display='none';
+    try {
+      const result = await TABS[activeTab].import(db, parsedData);
       await DB.loadFromServer(db);
       onDone&&onDone();
-      const errDetail=result.errors.length
-        ?'<br><br><span style="opacity:.75;font-size:10px;">'+result.errors.slice(0,8).map(e=>'• '+e).join('<br>')+(result.errors.length>8?'<br>...y '+(result.errors.length-8)+' mas':'')+'</span>'
-        :'';
+      const errDetail = result.errors.length
+        ? '<br><br><span style="opacity:.75;font-size:10px;">'
+          + result.errors.slice(0,10).map(e=>'• '+esc(e)).join('<br>')
+          + (result.errors.length>10?`<br>...y ${result.errors.length-10} más`:'')
+          + '</span>'
+        : '';
       showResult(
-        result.err===0?'ok':(result.ok>0?'warn':'error'),
+        result.err===0 ? 'ok' : result.ok>0 ? 'warn' : 'error',
         result.err===0
-          ?('<b>'+result.ok+' registro(s)</b> importados correctamente.')
-          :(result.ok+' importados · '+result.err+' con error.'+errDetail)
+          ? `<b>${result.ok} registro(s)</b> importados correctamente.`
+          : `${result.ok} importados · ${result.err} con error.${errDetail}`
       );
-    }catch(e){showResult('error','Error inesperado: '+(e?.message||e));}
-    finally{btnRun.textContent='Importar';btnRun.disabled=false;}
+    } catch(e) { showResult('error','Error inesperado: '+(e?.message||e)); }
+    finally { btnRun.textContent='⬆ Importar'; btnRun.disabled=false; }
   };
 
   rebind();
