@@ -1,21 +1,15 @@
 <?php
 // api/config.php — configuración común (CORS + PDO + helpers)
 
-// ============================================================
-// CORS (antes de cualquier output)
-// ============================================================
-
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 if ($origin !== '') {
     header("Access-Control-Allow-Origin: $origin");
     header('Vary: Origin');
 }
-
 header('Access-Control-Allow-Credentials: true');
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, X-Requested-With');
 
-// Preflight
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
     http_response_code(200);
     header('Content-Type: application/json; charset=utf-8');
@@ -23,13 +17,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
     exit;
 }
 
-// ============================================================
-// MySQL / XAMPP (PDO)
-// ============================================================
-
 define('DB_HOST', '127.0.0.1');
-define('DB_PORT', '3306'); // cambia si tu MySQL usa otro puerto
-
+define('DB_PORT', '3306');
 define('DB_NAME', 'dcm');
 define('DB_USER', 'root');
 define('DB_PASS', '');
@@ -48,10 +37,6 @@ try {
     echo json_encode(['ok' => false, 'error' => 'DB: ' . $e->getMessage()], JSON_UNESCAPED_UNICODE);
     exit;
 }
-
-// ============================================================
-// Helpers
-// ============================================================
 
 function json_in(): array {
     $raw = file_get_contents('php://input');

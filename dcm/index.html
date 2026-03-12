@@ -8,15 +8,10 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="DCManager">
-
   <title>Data Center Manager</title>
-
-  <!-- PWA Manifest -->
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
-
-  <!-- Estilos -->
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -27,36 +22,57 @@
   <header id="topbar">
     <div class="topbar-logo">⬛ DC Manager</div>
     <div class="topbar-sep"></div>
+
+    <!-- Locacion dropdown -->
+    <div id="locacionDropdownWrap"></div>
+
+    <div class="topbar-sep"></div>
     <span class="topbar-site-label">SITE:</span>
     <div class="site-btns" id="siteBtns"></div>
     <div class="topbar-spacer"></div>
 
-    <!-- Indicador de conexión MySQL -->
+    <!-- Barra de busqueda global -->
+    <div class="global-search-wrap" id="globalSearchWrap">
+      <div class="global-search-box">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="globalSearch" placeholder="Buscar racks, equipos, conexiones..." autocomplete="off">
+        <button class="search-clear-btn" id="searchClearBtn" title="Limpiar">✕</button>
+      </div>
+      <div class="search-dropdown" id="searchDropdown"></div>
+    </div>
+
+    <div class="topbar-sep"></div>
+
+    <!-- Importar -->
+    <button class="btn sm btn-import" id="btnImport" title="Importar CSV">⬆ Importar</button>
+    <div class="topbar-sep"></div>
+
+    <!-- Indicador MySQL -->
     <span id="syncStatus" class="sync-badge sync-loading">⟳ Conectando…</span>
     <div class="topbar-sep"></div>
 
-    <button class="btn-theme" id="btnTheme" title="Cambiar tema">☀️</button>
+    <button class="btn-theme" id="btnTheme" title="Cambiar tema [Alt+T]">☀️</button>
   </header>
 
   <!-- ── PANEL IZQUIERDO — Lista de Racks ────────────── -->
   <aside id="panel-left">
     <div class="panel-header">
       <span class="panel-title">RACKS</span>
-      <button class="btn sm primary" id="btnNewRack">＋ Nuevo</button>
+      <button class="btn sm primary" id="btnNewRack" title="Nuevo rack [Alt+R]">＋ Nuevo</button>
     </div>
     <div class="panel-content">
       <div id="rackList" class="rack-list"></div>
     </div>
   </aside>
 
-  <!-- ── PANEL CENTRAL — Vista Rack + Equipos ────────── -->
+  <!-- ── PANEL CENTRAL ────────────────────────────────── -->
   <main id="panel-mid">
 
     <div id="rackViewPanel">
       <div class="panel-header">
         <span class="panel-title" id="rackViewTitle">RACK VIEW</span>
-        <button class="btn sm" id="btnEditRack"  style="display:none">✏ Rack</button>
-        <button class="btn sm primary" id="btnNewEquipo" style="display:none">＋ Equipo</button>
+        <button class="btn sm" id="btnEditRack"  style="display:none" title="Editar rack">✏ Rack</button>
+        <button class="btn sm primary" id="btnNewEquipo" style="display:none" title="Nuevo equipo [Alt+E]">＋ Equipo</button>
       </div>
       <div id="rackStats" class="rack-stats"></div>
       <div style="padding: 10px;">
@@ -73,24 +89,20 @@
         <span class="panel-title" id="equiposTitle">EQUIPOS</span>
       </div>
       <div class="panel-content">
-        <div class="search-row">
-          <input type="text" id="searchEq" placeholder="Buscar equipo...">
-          <button class="btn sm" onclick="filterEquipos()">Filtrar</button>
-          <button class="btn sm" onclick="clearEquipoFilter()">✕</button>
-        </div>
+
         <div id="equipoList"></div>
       </div>
     </div>
 
   </main>
 
-  <!-- ── PANEL DERECHO — Detalle + Conexiones ────────── -->
+  <!-- ── PANEL DERECHO ────────────────────────────────── -->
   <aside id="panel-right">
 
     <div>
       <div class="panel-header">
         <span class="panel-title">DETALLE EQUIPO</span>
-        <button class="btn sm" id="btnEditEquipo" style="display:none">✏ Editar</button>
+        <button class="btn sm" id="btnEditEquipo" style="display:none" title="Editar equipo">✏ Editar</button>
       </div>
       <div class="panel-content" id="equipoDetail">
         <div class="placeholder">
@@ -105,14 +117,10 @@
     <div>
       <div class="panel-header">
         <span class="panel-title" id="conexTitle">CONEXIONES</span>
-        <button class="btn sm primary" id="btnNewConex" style="display:none" onclick="openConexModal(null)">＋</button>
+        <button class="btn sm primary" id="btnNewConex" style="display:none" onclick="openConexModal(null)" title="Nueva conexión [Alt+C]">＋</button>
       </div>
       <div class="panel-content">
-        <div class="search-row">
-          <input type="text" id="searchConn" placeholder="Buscar conexión...">
-          <button class="btn sm" onclick="filterConexiones()">Filtrar</button>
-          <button class="btn sm" onclick="clearConnFilter()">✕</button>
-        </div>
+
         <div id="conexList"></div>
       </div>
     </div>
@@ -121,7 +129,7 @@
 
     <div>
       <div class="panel-header">
-        <span class="panel-title">DETALLE CONEXIÓN</span>
+        <span class="panel-title">DETALLE CONEXION</span>
       </div>
       <div class="panel-content" id="conexDetail">
         <div class="placeholder">
@@ -139,16 +147,13 @@
   <div class="modal" id="modal">
     <div class="modal-header">
       <span class="modal-title" id="modalTitle">—</span>
-      <button class="modal-close" onclick="closeModal()">✕</button>
+      <button class="modal-close" onclick="closeModal()" title="Cerrar [Esc]">✕</button>
     </div>
     <div class="modal-body"   id="modalBody"></div>
     <div class="modal-footer" id="modalFooter"></div>
   </div>
 </div>
 
-<!-- ── Lógica principal ────────────────────────────────── -->
 <script type="module" src="app.js"></script>
-
-<!-- Service Worker deshabilitado (modo online-only) -->
 </body>
 </html>
