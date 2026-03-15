@@ -161,8 +161,20 @@ function parseEquipos(rows, db) {
       let uPos;
       if (uPosRaw!==''&&parseInt(uPosRaw)>0){uPos=parseInt(uPosRaw);autoUPos[rk]=uPos+uSize;}
       else {uPos=autoUPos[rk]; autoUPos[rk]+=uSize;}
+      // Duplicate detection: by numeroSerie (if not N/A), then by modelo+rack
+      let existEquipo = null;
+      if (numeroSerie !== 'N/A') {
+        existEquipo = db.equipos.find(e => e.numeroSerie === numeroSerie) || null;
+      }
+      if (!existEquipo && rackObj) {
+        existEquipo = db.equipos.find(e =>
+          e.rackId === rackObj.id &&
+          (e.modelo||'').toLowerCase() === modelo.toLowerCase()
+        ) || null;
+      }
       return { _row:i+2, modelo, rack:rackNom, numeroSerie, puerto, servicio, estado, uPos, uSize,
-               _rackId:rackObj?rackObj.id:null, _missingModelo:!modelo, _missingRack:!rackNom,
+               _rackId:rackObj?rackObj.id:null, _existId:existEquipo?existEquipo.id:null,
+               _missingModelo:!modelo, _missingRack:!rackNom,
                _rackNoExiste:!rackObj&&!!rackNom };
     });
 }
@@ -188,8 +200,13 @@ function parseConexiones(rows, db) {
       const estado    = estadoRaw===''?'Inactivo':estadoRaw;
       const destino   = iDest>=0 ? cv(r,iDest,'N/A') : 'N/A';
       const eqObj     = equipoId ? findEquipo(db,equipoId) : null;
+      // Duplicate detection: check if this (equipoId, id) connection already exists
+      const existConex = (eqObj && id)
+        ? (db.conexiones.find(c => c.equipoId === eqObj.id && c.id === id) || null)
+        : null;
       return { _row:i+2, equipoId, id, tipo, estado, destino,
-               _eqId:eqObj?eqObj.id:null, _missingId:!id, _missingEqId:!equipoId,
+               _eqId:eqObj?eqObj.id:null, _existId:existConex?true:false,
+               _missingId:!id, _missingEqId:!equipoId,
                _eqNoExiste:!eqObj&&!!equipoId };
     });
 }
@@ -236,7 +253,7 @@ function previewRacks(data) {
 
 function previewEquipos(data) {
   if (!data.length) return '<div class="import-hint">Sin datos.</div>';
-  let html='<table><thead><tr><th>#</th><th>Modelo</th><th>Rack</th><th>N° Serie</th><th>Servicio</th><th>Estado</th><th>uPos</th><th>uSz</th></tr></thead><tbody>';
+  let html='<table><thead><tr><th>#</th><th>Modelo</th><th>Rack</th><th>N° Serie</th><th>Servicio</th><th>Estado</th><th>uPos</th><th>uSz</th><th>Resultado</th></tr></thead><tbody>';
   html+=data.map(e=>`<tr>
     <td>${e._row}</td>
     <td class="${e._missingModelo?'cell-warn':'cell-ok'}">${esc(e.modelo||'(vacío)')}</td>
@@ -246,13 +263,14 @@ function previewEquipos(data) {
     <td class="${e.estado==='Inactivo'?'cell-na':'cell-ok'}">${esc(e.estado)}</td>
     <td class="cell-ok">${e.uPos}</td>
     <td class="${e.uSize===1?'cell-na':'cell-ok'}">${e.uSize}</td>
+    <td class="${e._existId?'cell-na':e._missingModelo||e._rackNoExiste?'cell-warn':'cell-new'}">${e._existId?'Ya existe (omitido)':e._missingModelo||e._rackNoExiste?'⚠ Con error':'Nuevo'}</td>
   </tr>`).join('');
   return html+'</tbody></table>';
 }
 
 function previewConexiones(data) {
   if (!data.length) return '<div class="import-hint">Sin conexiones.</div>';
-  let html='<table><thead><tr><th>#</th><th>Equipo ID</th><th>Puerto</th><th>Tipo</th><th>Estado</th><th>Destino</th></tr></thead><tbody>';
+  let html='<table><thead><tr><th>#</th><th>Equipo ID</th><th>Puerto</th><th>Tipo</th><th>Estado</th><th>Destino</th><th>Resultado</th></tr></thead><tbody>';
   html+=data.slice(0,80).map(c=>`<tr>
     <td>${c._row}</td>
     <td class="${c._missingEqId||c._eqNoExiste?'cell-warn':'cell-ok'}">${c._missingEqId?'⚠ Vacío':c._eqNoExiste?'⚠ No existe: '+esc(c.equipoId):esc(c.equipoId)}</td>
@@ -260,6 +278,7 @@ function previewConexiones(data) {
     <td class="cell-ok">${esc(c.tipo)}</td>
     <td class="${c.estado==='Inactivo'?'cell-na':'cell-ok'}">${esc(c.estado)}</td>
     <td class="${c.destino==='N/A'?'cell-na':'cell-ok'}">${esc(c.destino)}</td>
+    <td class="${c._existId?'cell-na':c._missingId||c._eqNoExiste?'cell-warn':'cell-new'}">${c._existId?'Ya existe (omitido)':c._missingId||c._eqNoExiste?'⚠ Con error':'Nueva'}</td>
   </tr>`).join('');
   html+='</tbody></table>';
   if (data.length>80) html+=`<div class="import-hint">Mostrando 80 de ${data.length} filas.</div>`;
@@ -316,6 +335,7 @@ async function importEquipos(db, data) {
     if (e._missingModelo) { errors.push(`Fila ${e._row}: modelo vacío.`); continue; }
     if (e._missingRack)   { errors.push(`Fila ${e._row} "${e.modelo}": rack vacío.`); continue; }
     if (e._rackNoExiste)  { errors.push(`Fila ${e._row} "${e.modelo}": rack "${e.rack}" no existe.`); continue; }
+    if (e._existId)       { ok++; continue; }  // ya existe, omitir silenciosamente
     const rackObj = findRack(db, e.rack);
     if (!rackObj) { errors.push(`Fila ${e._row}: rack "${e.rack}" no encontrado.`); continue; }
     try {
@@ -334,6 +354,7 @@ async function importConexiones(db, data) {
     if (conn._missingId)   { errors.push(`Fila ${conn._row}: id/puerto vacío.`); continue; }
     if (conn._missingEqId) { errors.push(`Fila ${conn._row}: equipo_id vacío.`); continue; }
     if (conn._eqNoExiste)  { errors.push(`Fila ${conn._row}: equipo "${conn.equipoId}" no existe.`); continue; }
+    if (conn._existId)     { ok++; continue; }  // ya existe, omitir silenciosamente
     const eqObj = findEquipo(db, conn.equipoId);
     if (!eqObj) { errors.push(`Fila ${conn._row}: equipo "${conn.equipoId}" no encontrado.`); continue; }
     try { await DB.insertConexion(db,{id:conn.id, equipoId:eqObj.id, tipo:conn.tipo, estado:conn.estado, destino:conn.destino}); ok++; }
@@ -445,7 +466,8 @@ const TABS = {
     import:  (db,data) => importConexiones(db,data),
     stats:   (data)    => ({
       Registros: data.length,
-      Validos: data.filter(d=>!d._missingId&&!d._eqNoExiste).length,
+      Nuevas: data.filter(d=>!d._existId&&!d._missingId&&!d._eqNoExiste).length,
+      'Ya existen': data.filter(d=>d._existId).length,
       Errores: data.filter(d=>d._missingId||d._missingEqId||d._eqNoExiste).length,
     }),
     hint: {

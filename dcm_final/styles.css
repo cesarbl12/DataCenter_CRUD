@@ -989,3 +989,72 @@ body.light .global-search-box:focus-within { background: #fff; }
 body.light .search-dropdown { background: #fff; box-shadow: 0 8px 32px rgba(0,0,0,0.15); }
 body.light .search-result-item:hover,
 body.light .search-result-item.focused { background: rgba(42,91,215,0.07); }
+
+/* ════════════════════════════════════════════════════════
+   AUTH BUTTONS (agregados sin modificar estilos existentes)
+   ════════════════════════════════════════════════════════ */
+.btn-auth-users {
+  background: rgba(74,138,255,0.12);
+  border: 1px solid rgba(74,138,255,0.35);
+  color: #4a8aff;
+}
+.btn-auth-users:hover {
+  background: rgba(74,138,255,0.22);
+  border-color: #4a8aff;
+  color: #fff;
+}
+
+.btn-auth-logout {
+  background: rgba(255,68,85,0.08);
+  border: 1px solid rgba(255,68,85,0.28);
+  color: #ff6677;
+}
+.btn-auth-logout:hover {
+  background: rgba(255,68,85,0.18);
+  border-color: #ff4455;
+  color: #ff4455;
+}
+
+.auth-user-info {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text3);
+  white-space: nowrap;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* usuarios.php — form fields (needed by usuarios.php page) */
+.field-label-sm {
+  display: block;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em;
+  color: var(--text3); margin-bottom: 6px;
+}
+.field-input {
+  width: 100%; padding: 8px 10px;
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text);
+  font-family: var(--mono); font-size: 12px;
+  outline: none; transition: border-color var(--transition);
+}
+.field-input:focus { border-color: var(--accent); }
+select.field-input { cursor: pointer; }
+.btn.danger {
+  background: rgba(255,68,85,0.1);
+  border-color: rgba(255,68,85,0.25);
+  color: #ff4455;
+}
+.btn.danger:hover { background: rgba(255,68,85,0.2); }
+
+/* btn-logout para usuarios.php */
+.btn-logout {
+  background: rgba(255,68,85,0.08);
+  border: 1px solid rgba(255,68,85,0.28);
+  color: #ff6677;
+}
+.btn-logout:hover {
+  background: rgba(255,68,85,0.18);
+  border-color: #ff4455;
+  color: #ff4455;
+}

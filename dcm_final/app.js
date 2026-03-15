@@ -376,15 +376,9 @@ function buildLocacionDropdown() {
         ${locs.map(l => `
           <div class="loc-menu-item ${state.locacion?.id===l.id?'active':''}" data-id="${esc(l.id)}">
             <span class="loc-menu-name">${esc(l.nombre)}</span>
-            <span class="loc-menu-actions">
-              <button class="loc-menu-btn" data-action="edit" data-id="${esc(l.id)}" title="Editar">✏</button>
-              <button class="loc-menu-btn danger" data-action="delete" data-id="${esc(l.id)}" title="Eliminar">🗑</button>
-            </span>
+            ${(typeof __canWrite==='undefined'||__canWrite()) ? '<span class="loc-menu-actions"><button class="loc-menu-btn" data-action="edit" data-id="'+esc(l.id)+'" title="Editar">✏</button><button class="loc-menu-btn danger" data-action="delete" data-id="'+esc(l.id)+'" title="Eliminar">🗑</button></span>' : ''}
           </div>`).join('')}
-        ${locs.length ? '<div class="loc-menu-sep"></div>' : ''}
-        <div class="loc-menu-item loc-menu-action" data-action="new">
-          <span>＋ Nueva locación</span>
-        </div>
+        ${(typeof __canWrite==='undefined'||__canWrite()) ? (locs.length ? '<div class="loc-menu-sep"></div>' : '') + '<div class="loc-menu-item loc-menu-action" data-action="new"><span>＋ Nueva locación</span></div>' : ''}
       </div>
     </div>`;
 
@@ -465,16 +459,19 @@ function buildSiteSelector() {
     container.appendChild(b);
   });
 
-  // + new site button
-  const addBtn = document.createElement('button');
-  addBtn.className = 'btn-site btn-site-add';
-  addBtn.textContent = '＋';
-  addBtn.title = 'Nuevo site';
-  addBtn.onclick = () => openSiteModal(null);
-  container.appendChild(addBtn);
+  // + new site button (solo para usuarios con permiso de escritura)
+  if (typeof __canWrite === 'undefined' || __canWrite()) {
+    const addBtn = document.createElement('button');
+    addBtn.className = 'btn-site btn-site-add';
+    addBtn.textContent = '＋';
+    addBtn.title = 'Nuevo site';
+    addBtn.onclick = () => openSiteModal(null);
+    container.appendChild(addBtn);
+  }
 }
 
 function showSiteCtxMenu(e, site) {
+  if (typeof __canWrite !== 'undefined' && !__canWrite()) return;
   buildCtxMenu(e.clientX, e.clientY, [
     { label: '✏ Editar site',  action: () => openSiteModal(site) },
     'sep',
@@ -515,12 +512,11 @@ function renderRackList() {
       </div>
       <div class="rack-ubadge">${rack.unidades}U</div>
       <div class="rack-actions">
-        <button class="btn-rack-edit"   title="Editar"   data-id="${esc(rack.id)}">✏</button>
-        <button class="btn-rack-delete" title="Eliminar" data-id="${esc(rack.id)}">🗑</button>
+        ${(typeof __canWrite==='undefined'||__canWrite()) ? '<button class="btn-rack-edit" title="Editar" data-id="'+esc(rack.id)+'">✏</button><button class="btn-rack-delete" title="Eliminar" data-id="'+esc(rack.id)+'">🗑</button>' : ''}
       </div>`;
     div.querySelector('.rack-actions').addEventListener('click', e => e.stopPropagation());
-    div.querySelector('.btn-rack-edit').addEventListener('click', e => { e.stopPropagation(); selectRack(rack); openRackModal(rack); });
-    div.querySelector('.btn-rack-delete').addEventListener('click', e => {
+    div.querySelector('.btn-rack-edit')?.addEventListener('click', e => { e.stopPropagation(); selectRack(rack); openRackModal(rack); });
+    div.querySelector('.btn-rack-delete')?.addEventListener('click', e => {
       e.stopPropagation();
       showConfirm(`¿Eliminar rack ${rack.id} y todo su contenido?`, async () => {
         await DB.deleteRack(db, rack.id);
@@ -554,8 +550,10 @@ function renderRackView() {
     document.getElementById('btnEditRack').style.display = 'none';
     return;
   }
-  btnNew.style.display = '';
-  document.getElementById('btnEditRack').style.display = '';
+  if (typeof __canWrite === 'undefined' || __canWrite()) {
+    btnNew.style.display = '';
+    document.getElementById('btnEditRack').style.display = '';
+  }
 
   const rack    = state.rack;
   const equipos = DB.getEquiposByRack(db, rack.id);
@@ -795,8 +793,10 @@ function renderEquipoList() {
 
 function selectEquipo(eq) {
   state.equipo=eq; state.conexion=null; refreshAll();
-  document.getElementById('btnEditEquipo').style.display='';
-  document.getElementById('btnNewConex').style.display='';
+  if (typeof __canWrite === 'undefined' || __canWrite()) {
+    document.getElementById('btnEditEquipo').style.display='';
+    document.getElementById('btnNewConex').style.display='';
+  }
 }
 
 // ════════════════════════════════════════════════════════
@@ -819,10 +819,8 @@ function renderEquipoDetail() {
       <div class="detail-row"><span class="detail-key">ESTADO</span>   <span class="detail-val"><span class="pill ${pillClass(eq.estado)}">${esc((eq.estado||'').toUpperCase())}</span></span></div>
       <div class="detail-row"><span class="detail-key">POSICION</span> <span class="detail-val">${esc(pos)}</span></div>
     </div>
-    <div class="action-row">
-      <button class="btn sm" onclick="openEquipoModal(window._selectedEquipo)">✏ Editar</button>
-      <button class="btn sm danger" onclick="confirmDeleteEquipo()">🗑 Eliminar</button>
-    </div>`;
+    ${(typeof __canWrite==='undefined'||__canWrite()) ? '<div class="action-row"><button class="btn sm" onclick="openEquipoModal(window._selectedEquipo)">✏ Editar</button><button class="btn sm danger" onclick="confirmDeleteEquipo()">🗑 Eliminar</button></div>' : ''}
+    `;
   window._selectedEquipo = eq;
 }
 
@@ -861,10 +859,8 @@ function renderConexDetail() {
       <div class="detail-row"><span class="detail-key">ESTADO</span>     <span class="detail-val"><span class="pill ${pillClass(c.estado)}">${esc((c.estado||'').toUpperCase())}</span></span></div>
       <div class="detail-row"><span class="detail-key">DESTINO</span>    <span class="detail-val">${esc(safeText(c.destino))}</span></div>
     </div>
-    <div class="action-row">
-      <button class="btn sm" onclick="openConexModal(window._selectedConex)">✏ Editar</button>
-      <button class="btn sm danger" onclick="confirmDeleteConex()">🗑 Eliminar</button>
-    </div>`;
+    ${(typeof __canWrite==='undefined'||__canWrite()) ? '<div class="action-row"><button class="btn sm" onclick="openConexModal(window._selectedConex)">✏ Editar</button><button class="btn sm danger" onclick="confirmDeleteConex()">🗑 Eliminar</button></div>' : ''}
+    `;
   window._selectedConex = c;
 }
 
@@ -967,23 +963,29 @@ function buildCtxMenu(x, y, items) {
 
 function showRackCtxMenu(e,rack) {
   buildCtxMenu(e.clientX,e.clientY,[
-    {label:'✏ Editar rack',   action:()=>{selectRack(rack);openRackModal(rack);}},
-    {label:'+ Nuevo equipo',  action:()=>{selectRack(rack);openEquipoModal(null);}},
+    ...(typeof __canWrite==='undefined'||__canWrite() ? [
+      {label:'✏ Editar rack',   action:()=>{selectRack(rack);openRackModal(rack);}},
+      {label:'+ Nuevo equipo',  action:()=>{selectRack(rack);openEquipoModal(null);}}
+    ] : []),
     'sep',
     {label:'🗑 Eliminar rack', danger:true, action:()=>showConfirm(`¿Eliminar rack ${rack.id}?`,async()=>{await DB.deleteRack(db,rack.id);if(state.rack?.id===rack.id){state.rack=null;state.equipo=null;state.conexion=null;}syncStateSelection();refreshAll();})},
   ]);
 }
 function showEquipoCtxMenu(e,eq) {
   buildCtxMenu(e.clientX,e.clientY,[
-    {label:'✏ Editar equipo',   action:()=>{selectEquipo(eq);openEquipoModal(eq);}},
-    {label:'+ Nueva conexion',  action:()=>{selectEquipo(eq);openConexModal(null);}},
+    ...(typeof __canWrite==='undefined'||__canWrite() ? [
+      {label:'✏ Editar equipo',   action:()=>{selectEquipo(eq);openEquipoModal(eq);}},
+      {label:'+ Nueva conexion',  action:()=>{selectEquipo(eq);openConexModal(null);}}
+    ] : []),
     'sep',
     {label:'🗑 Eliminar equipo', danger:true, action:()=>showConfirm(`¿Eliminar ${eq.id}?`,async()=>{await DB.deleteEquipo(db,eq.id);if(state.equipo?.id===eq.id){state.equipo=null;state.conexion=null;}syncStateSelection();refreshAll();})},
   ]);
 }
 function showConnCtxMenu(e,conn) {
   buildCtxMenu(e.clientX,e.clientY,[
-    {label:'✏ Editar conexion',   action:()=>{selectConexion(conn);openConexModal(conn);}},
+    ...(typeof __canWrite==='undefined'||__canWrite() ? [
+      {label:'✏ Editar conexion', action:()=>{selectConexion(conn);openConexModal(conn);}}
+    ] : []),
     'sep',
     {label:'🗑 Eliminar conexion', danger:true, action:()=>showConfirm(`¿Eliminar conexion ${conn.id}?`,async()=>{await DB.deleteConexion(db,conn.equipoId,conn.id);if(state.conexion?.id===conn.id)state.conexion=null;refreshAll();})},
   ]);
@@ -1312,3 +1314,54 @@ function refreshAll() {
   const badge=document.getElementById('syncStatus');
   if(badge) badge.addEventListener('click',async()=>{setSyncStatus('loading');const r=await DB.loadFromServer(db);setSyncStatus(r?'ok':(navigator.onLine?'error':'offline'));syncStateSelection();refreshAll();});
 })();
+
+// ════════════════════════════════════════════════════════
+// AUTH — Sesion, roles y botones (no modifica logica existente)
+// ════════════════════════════════════════════════════════
+
+// Roles con permiso de escritura
+function __canWrite() {
+  const u = window.__INITIAL_USER__;
+  return u && ['superadmin','crud'].includes(u.rol);
+}
+
+// Logout
+window.__doLogout = async function() {
+  try {
+    await fetch('api/auth.php?action=logout', { method: 'POST', credentials: 'same-origin' });
+  } catch(_) {}
+  window.location.href = 'login.html';
+};
+
+// Aplicar UI segun rol — se llama una vez al cargar
+function __applyAuthUI() {
+  const u = window.__INITIAL_USER__;
+  if (!u) { window.location.href = 'login.html'; return; }
+
+  // Info del usuario en topbar
+  const infoEl = document.getElementById('authUserInfo');
+  if (infoEl) {
+    const rolLabel = { superadmin:'SUPERADMIN', admin:'ADMIN', crud:'CRUD', lector:'LECTOR' }[u.rol] || u.rol;
+    infoEl.textContent = (u.nombre || u.username) + ' · ' + rolLabel;
+  }
+
+  // Boton usuarios: solo para superadmin
+  const btnUsers = document.getElementById('btnManageUsers');
+  if (btnUsers) btnUsers.style.display = (u.rol === 'superadmin') ? '' : 'none';
+
+  // Ocultar controles de escritura para lector y admin
+  if (!__canWrite()) {
+    ['btnNewRack','btnEditRack','btnNewEquipo','btnEditEquipo','btnNewConex','btnImport'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
+  }
+}
+
+// Ejecutar cuando el DOM esté listo
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', __applyAuthUI);
+} else {
+  // DOM ya listo — pero esperar al init de app.js que puede reconstruir botones
+  setTimeout(__applyAuthUI, 0);
+}

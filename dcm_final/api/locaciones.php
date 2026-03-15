@@ -1,4 +1,13 @@
 <?php
+session_start();
+function dcm_auth_guard(string $method): void {
+    $u = $_SESSION["dcm_user"] ?? null;
+    if (!$u) { http_response_code(401); header("Content-Type: application/json"); echo json_encode(["ok"=>false,"error"=>"No autenticado."]); exit; }
+    if (in_array($method,["POST","PUT","DELETE"]) && !in_array($u["rol"],["superadmin","crud"])) {
+        http_response_code(403); header("Content-Type: application/json"); echo json_encode(["ok"=>false,"error"=>"Sin permisos de escritura."]); exit;
+    }
+}
+dcm_auth_guard($_SERVER["REQUEST_METHOD"] ?? "GET");
 // api/locaciones.php — CRUD de Locaciones
 require __DIR__ . '/config.php';
 
@@ -11,6 +20,24 @@ function gen_loc_id() {
 try {
     // GET /api/locaciones.php
     if ($method === 'GET') {
+        $u = $_SESSION['dcm_user'] ?? null;
+        $rol = $u['rol'] ?? '';
+        // lector y crud: solo ven sus locaciones asignadas
+        if (in_array($rol, ['lector','crud'])) {
+            $uid  = intval($u['id'] ?? 0);
+            $asig = $pdo->prepare("SELECT locacion_id FROM usuario_locaciones WHERE usuario_id=?");
+            $asig->execute([$uid]);
+            $ids  = array_column($asig->fetchAll(), 'locacion_id');
+            if (empty($ids)) {
+                out(['ok' => true, 'locaciones' => []]);
+            }
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $rows = $pdo->prepare("SELECT id, nombre FROM locaciones WHERE id IN ($placeholders) ORDER BY nombre");
+            $rows->execute($ids);
+            $locs = array_map(fn($r) => ['id' => $r['id'], 'nombre' => $r['nombre']], $rows->fetchAll());
+            out(['ok' => true, 'locaciones' => $locs]);
+        }
+        // superadmin y admin: ven todas
         $rows = $pdo->query("SELECT id, nombre FROM locaciones ORDER BY nombre")->fetchAll();
         $locs = array_map(fn($r) => ['id' => $r['id'], 'nombre' => $r['nombre']], $rows);
         out(['ok' => true, 'locaciones' => $locs]);

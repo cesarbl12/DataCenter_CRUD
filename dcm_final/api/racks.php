@@ -1,4 +1,13 @@
 <?php
+session_start();
+function dcm_auth_guard(string $method): void {
+    $u = $_SESSION["dcm_user"] ?? null;
+    if (!$u) { http_response_code(401); header("Content-Type: application/json"); echo json_encode(["ok"=>false,"error"=>"No autenticado."]); exit; }
+    if (in_array($method,["POST","PUT","DELETE"]) && !in_array($u["rol"],["superadmin","crud"])) {
+        http_response_code(403); header("Content-Type: application/json"); echo json_encode(["ok"=>false,"error"=>"Sin permisos de escritura."]); exit;
+    }
+}
+dcm_auth_guard($_SERVER["REQUEST_METHOD"] ?? "GET");
 // api/racks.php — CRUD de Racks (site_id -> sites.id)
 require __DIR__ . '/config.php';
 
