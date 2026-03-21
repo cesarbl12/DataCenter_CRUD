@@ -304,12 +304,6 @@ $meJson = json_encode($me, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP
           <span class="rol-card-name" style="color:#00e887">CRUD</span>
           <span class="rol-card-desc">Lectura y escritura completa. Sin acceso a gestión de usuarios.</span>
         </label>
-        <label class="rol-card" data-rol="admin">
-          <input type="radio" name="f_rol" value="admin" id="rol_admin">
-          <span class="rol-card-icon" style="color:#4a8aff">◈</span>
-          <span class="rol-card-name" style="color:#4a8aff">Admin</span>
-          <span class="rol-card-desc">Solo lectura de todas las locaciones. Sin escritura ni gestión.</span>
-        </label>
         <label class="rol-card" data-rol="superadmin">
           <input type="radio" name="f_rol" value="superadmin" id="rol_superadmin">
           <span class="rol-card-icon" style="color:#ff8c42">★</span>
@@ -375,11 +369,10 @@ async function doLogout() {
 }
 
 // ── Data ─────────────────────────────────────────────────
-const ROL_LABELS = { superadmin:'Superadmin', admin:'Admin', crud:'CRUD', lector:'Lector' };
-const ROL_COLORS = { superadmin:'#ff8c42', admin:'#4a8aff', crud:'#00e887', lector:'#8ba3cc' };
+const ROL_LABELS = { superadmin:'Superadmin', crud:'CRUD', lector:'Lector' };
+const ROL_COLORS = { superadmin:'#ff8c42', crud:'#00e887', lector:'#8ba3cc' };
 const ROL_DESC   = {
   superadmin: 'Acceso total + gestión de usuarios',
-  admin:      'Solo lectura de todas las locaciones',
   crud:       'Lectura y escritura (sin gestión de usuarios)',
   lector:     'Solo visualización',
 };
@@ -390,8 +383,8 @@ let _allLocaciones = [];  // todas las locaciones del sistema
 
 async function loadAllLocaciones() {
   try {
-    // Fetch as superadmin — all locaciones
     const res  = await fetch('api/locaciones.php', { credentials:'same-origin' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     _allLocaciones = data.locaciones || [];
   } catch(_) { _allLocaciones = []; }
@@ -468,9 +461,15 @@ function showForm(userId) {
     isEdit ? `EDITANDO: @${user.username}` : 'NUEVO USUARIO';
   document.getElementById('btnSave').textContent =
     isEdit ? '💾 Guardar cambios' : '＋ Crear usuario';
+  document.getElementById('btnSave').disabled = false;
   document.getElementById('formError').textContent = '';
   // Populate locaciones checkboxes (will show/hide based on rol selection)
-  renderLocacionesSelector(user ? (user.locaciones || []) : []);
+  // Re-fetch if list is empty (may have failed at boot)
+  if (!_allLocaciones.length) {
+    loadAllLocaciones().then(() => renderLocacionesSelector(user ? (user.locaciones || []) : []));
+  } else {
+    renderLocacionesSelector(user ? (user.locaciones || []) : []);
+  }
 
   // Nombre
   document.getElementById('f_nombre').value = isEdit ? (user.nombre||'') : '';
@@ -643,6 +642,7 @@ async function saveUser() {
   } catch(e) {
     errEl.textContent = 'Error de red: ' + e.message;
     btn.disabled = false;
+    btn.textContent = isEdit ? '💾 Guardar cambios' : '＋ Crear usuario';
   }
 }
 

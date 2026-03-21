@@ -114,6 +114,8 @@ function saveSessionState() {
   try {
     localStorage.setItem('dcm_locacion', state.locacion?.id || '');
     localStorage.setItem('dcm_site',     state.site?.id     || '');
+    localStorage.setItem('dcm_rack',     state.rack?.id     || '');
+    localStorage.setItem('dcm_equipo',   state.equipo?.id   || '');
   } catch(_) {}
 }
 
@@ -122,8 +124,10 @@ function loadSessionState() {
     return {
       locacionId: localStorage.getItem('dcm_locacion') || null,
       siteId:     localStorage.getItem('dcm_site')     || null,
+      rackId:     localStorage.getItem('dcm_rack')     || null,
+      equipoId:   localStorage.getItem('dcm_equipo')   || null,
     };
-  } catch(_) { return { locacionId: null, siteId: null }; }
+  } catch(_) { return { locacionId: null, siteId: null, rackId: null, equipoId: null }; }
 }
 
 // ════════════════════════════════════════════════════════
@@ -1305,6 +1309,14 @@ function refreshAll() {
       const site = db.sites.find(s => s.id === saved.siteId && s.locacionId === state.locacion.id);
       if (site) { state.site = site; }
     }
+    if (saved.rackId && state.site) {
+      const rack = db.racks.find(r => r.id === saved.rackId);
+      if (rack) { state.rack = rack; }
+    }
+    if (saved.equipoId && state.rack) {
+      const equipo = db.equipos.find(e => e.id === saved.equipoId && e.rackId === state.rack.id);
+      if (equipo) { state.equipo = equipo; }
+    }
     syncStateSelection();
     refreshAll();
   } else {
@@ -1319,7 +1331,7 @@ function refreshAll() {
 // AUTH — Sesion, roles y botones (no modifica logica existente)
 // ════════════════════════════════════════════════════════
 
-// Roles con permiso de escritura
+// s con permiso de escritura
 function __canWrite() {
   const u = window.__INITIAL_USER__;
   return u && ['superadmin','crud'].includes(u.rol);
@@ -1341,7 +1353,7 @@ function __applyAuthUI() {
   // Info del usuario en topbar
   const infoEl = document.getElementById('authUserInfo');
   if (infoEl) {
-    const rolLabel = { superadmin:'SUPERADMIN', admin:'ADMIN', crud:'CRUD', lector:'LECTOR' }[u.rol] || u.rol;
+    const rolLabel = { superadmin:'SUPERADMIN', crud:'CRUD', lector:'LECTOR' }[u.rol] || u.rol;
     infoEl.textContent = (u.nombre || u.username) + ' · ' + rolLabel;
   }
 
@@ -1349,7 +1361,7 @@ function __applyAuthUI() {
   const btnUsers = document.getElementById('btnManageUsers');
   if (btnUsers) btnUsers.style.display = (u.rol === 'superadmin') ? '' : 'none';
 
-  // Ocultar controles de escritura para lector y admin
+  // Ocultar controles de escritura para lector y crud (en locaciones solo superadmin)
   if (!__canWrite()) {
     ['btnNewRack','btnEditRack','btnNewEquipo','btnEditEquipo','btnNewConex','btnImport'].forEach(id => {
       const el = document.getElementById(id);

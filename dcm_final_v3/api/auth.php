@@ -9,7 +9,7 @@ if (isset($_GET['setup'])) {
         id         INT          NOT NULL AUTO_INCREMENT,
         username   VARCHAR(60)  NOT NULL UNIQUE,
         password   VARCHAR(255) NOT NULL,
-        rol        ENUM('superadmin','admin','crud','lector') NOT NULL DEFAULT 'lector',
+        rol        ENUM('superadmin','crud','lector') NOT NULL DEFAULT 'lector',
         nombre     VARCHAR(100) NOT NULL DEFAULT '',
         activo     TINYINT(1)   NOT NULL DEFAULT 1,
         created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -150,7 +150,7 @@ if ($method === 'POST') {
 
         if (!$username) out(['ok' => false, 'error' => 'Username es obligatorio.'], 400);
         if (strlen($password) < 6) out(['ok' => false, 'error' => 'La contrasena debe tener al menos 6 caracteres.'], 400);
-        if (!in_array($rol, ['superadmin','admin','crud','lector']))
+        if (!in_array($rol, ['superadmin','crud','lector']))
             out(['ok' => false, 'error' => 'Rol invalido.'], 400);
 
         $check = $pdo->prepare("SELECT id FROM usuarios WHERE username=?");
@@ -190,7 +190,7 @@ if ($method === 'PUT') {
     // Superadmin puede cambiar nombre, rol, activo
     if ($me['rol'] === 'superadmin') {
         if (isset($in['nombre']))  { $fields[]='nombre=?';  $vals[]=$in['nombre']; }
-        if (isset($in['rol']) && in_array($in['rol'],['superadmin','admin','crud','lector'])) {
+        if (isset($in['rol']) && in_array($in['rol'],['superadmin','crud','lector'])) {
             // No permitir que el superadmin se cambie su propio rol
             if ($me['id'] !== $targetId) { $fields[]='rol=?'; $vals[]=$in['rol']; }
         }

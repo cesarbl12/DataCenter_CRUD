@@ -3,7 +3,7 @@ session_start();
 function dcm_auth_guard(string $method): void {
     $u = $_SESSION["dcm_user"] ?? null;
     if (!$u) { http_response_code(401); header("Content-Type: application/json"); echo json_encode(["ok"=>false,"error"=>"No autenticado."]); exit; }
-    if (in_array($method,["POST","PUT","DELETE"]) && !in_array($u["rol"],["superadmin","crud"])) {
+    if (in_array($method,["POST","PUT","DELETE"]) && $u["rol"] !== "superadmin") {
         http_response_code(403); header("Content-Type: application/json"); echo json_encode(["ok"=>false,"error"=>"Sin permisos de escritura."]); exit;
     }
 }
@@ -37,7 +37,7 @@ try {
             $locs = array_map(fn($r) => ['id' => $r['id'], 'nombre' => $r['nombre']], $rows->fetchAll());
             out(['ok' => true, 'locaciones' => $locs]);
         }
-        // superadmin y admin: ven todas
+        // superadmin: ve todas
         $rows = $pdo->query("SELECT id, nombre FROM locaciones ORDER BY nombre")->fetchAll();
         $locs = array_map(fn($r) => ['id' => $r['id'], 'nombre' => $r['nombre']], $rows);
         out(['ok' => true, 'locaciones' => $locs]);
