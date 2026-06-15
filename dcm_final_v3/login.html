@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DC Manager — Login</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;400;600;700&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #080d12;
+      --bg2:     #0d1520;
+      --bg3:     #111c2a;
+      --border:  rgba(42,91,215,0.25);
+      --accent:  #2a5bd7;
+      --accent2: #4a8aff;
+      --green:   #00e887;
+      --text:    #e8f0ff;
+      --text2:   #8ba3cc;
+      --text3:   #4a6080;
+      --mono:    'Share Tech Mono', monospace;
+      --sans:    'Barlow', sans-serif;
+      --danger:  #ff4455;
+    }
+
+    html, body {
+      height: 100%; background: var(--bg);
+      font-family: var(--sans); color: var(--text);
+      overflow: hidden;
+    }
+
+    /* ── GRID BACKGROUND ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; z-index: 0;
+      background-image:
+        linear-gradient(rgba(42,91,215,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(42,91,215,0.04) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+    }
+    body::after {
+      content: '';
+      position: fixed; inset: 0; z-index: 0;
+      background: radial-gradient(ellipse 80% 60% at 50% 40%, rgba(42,91,215,0.08) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    /* ── SCAN LINE ── */
+    .scanline {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 1;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, rgba(74,138,255,0.6), transparent);
+      animation: scan 4s linear infinite;
+      pointer-events: none;
+    }
+    @keyframes scan { from { top: -2px; } to { top: 100vh; } }
+
+    /* ── CORNER DECORATIONS ── */
+    .corner { position: fixed; z-index: 1; pointer-events: none; }
+    .corner svg { opacity: 0.3; }
+    .corner-tl { top: 20px; left: 20px; }
+    .corner-tr { top: 20px; right: 20px; transform: scaleX(-1); }
+    .corner-bl { bottom: 20px; left: 20px; transform: scaleY(-1); }
+    .corner-br { bottom: 20px; right: 20px; transform: scale(-1,-1); }
+
+    /* ── MAIN LAYOUT ── */
+    .login-wrap {
+      position: relative; z-index: 2;
+      min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px;
+    }
+
+    /* ── CARD ── */
+    .card {
+      width: 100%; max-width: 400px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+      box-shadow: 0 0 0 1px rgba(42,91,215,0.08), 0 40px 80px rgba(0,0,0,0.6);
+      animation: cardIn 0.5s cubic-bezier(0.16,1,0.3,1) both;
+    }
+    @keyframes cardIn {
+      from { opacity: 0; transform: translateY(24px) scale(0.97); }
+      to   { opacity: 1; transform: none; }
+    }
+
+    /* Card top accent bar */
+    .card-accent {
+      height: 3px;
+      background: linear-gradient(90deg, var(--accent), var(--accent2), var(--green));
+    }
+
+    /* ── HEADER ── */
+    .card-head {
+      padding: 32px 36px 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    .logo-row {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 20px;
+    }
+    .logo-icon {
+      width: 38px; height: 38px;
+      background: var(--accent);
+      border-radius: 2px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+    }
+    .logo-text {
+      font-family: var(--mono); font-size: 13px; font-weight: 400;
+      color: var(--text2); letter-spacing: 0.12em;
+      line-height: 1.4;
+    }
+    .logo-text strong { color: var(--text); font-weight: 400; display: block; font-size: 15px; }
+
+    .card-title {
+      font-family: var(--mono); font-size: 11px;
+      color: var(--text3); letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+
+    /* ── FORM ── */
+    .card-body { padding: 28px 36px 32px; }
+
+    .field { margin-bottom: 20px; }
+    .field-label {
+      display: block;
+      font-family: var(--mono); font-size: 10px;
+      color: var(--text3); letter-spacing: 0.12em;
+      margin-bottom: 8px;
+    }
+    .field-wrap {
+      position: relative;
+      border: 1px solid var(--border);
+      background: var(--bg3);
+      border-radius: 2px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .field-wrap:focus-within {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(42,91,215,0.12);
+    }
+    .field-wrap input {
+      width: 100%; padding: 12px 14px;
+      background: none; border: none; outline: none;
+      font-family: var(--mono); font-size: 13px;
+      color: var(--text);
+    }
+    .field-wrap input::placeholder { color: var(--text3); }
+
+    /* Password toggle */
+    .pwd-toggle {
+      position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+      background: none; border: none; cursor: pointer;
+      color: var(--text3); font-size: 14px; line-height: 1;
+      transition: color 0.2s;
+    }
+    .pwd-toggle:hover { color: var(--text2); }
+
+    /* ── ERROR ── */
+    .error-msg {
+      display: none;
+      margin-bottom: 16px; padding: 10px 14px;
+      background: rgba(255,68,85,0.08);
+      border: 1px solid rgba(255,68,85,0.3);
+      border-radius: 2px;
+      font-family: var(--mono); font-size: 11px;
+      color: var(--danger);
+    }
+    .error-msg.show { display: block; }
+
+    /* ── SUBMIT BUTTON ── */
+    .btn-login {
+      width: 100%; padding: 13px;
+      background: var(--accent);
+      border: none; border-radius: 2px; cursor: pointer;
+      font-family: var(--mono); font-size: 12px;
+      color: #fff; letter-spacing: 0.1em;
+      transition: background 0.2s, transform 0.1s;
+      position: relative; overflow: hidden;
+    }
+    .btn-login:hover { background: var(--accent2); }
+    .btn-login:active { transform: scale(0.99); }
+    .btn-login:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-login .spinner {
+      display: none;
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin: 0 auto;
+    }
+    .btn-login.loading .btn-text { display: none; }
+    .btn-login.loading .spinner  { display: block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── STATUS DOTS ── */
+    .status-row {
+      display: flex; align-items: center; gap: 8px;
+      margin-top: 20px;
+      font-family: var(--mono); font-size: 10px; color: var(--text3);
+    }
+    .status-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 6px var(--green);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  </style>
+</head>
+<body>
+
+<div class="scanline"></div>
+
+<!-- Corner decorations -->
+<div class="corner corner-tl">
+  <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+    <path d="M0 40 L0 0 L40 0" stroke="#4a8aff" stroke-width="1.5" fill="none"/>
+    <circle cx="0" cy="0" r="3" fill="#4a8aff"/>
+  </svg>
+</div>
+<div class="corner corner-tr">
+  <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+    <path d="M0 40 L0 0 L40 0" stroke="#4a8aff" stroke-width="1.5" fill="none"/>
+    <circle cx="0" cy="0" r="3" fill="#4a8aff"/>
+  </svg>
+</div>
+<div class="corner corner-bl">
+  <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+    <path d="M0 40 L0 0 L40 0" stroke="#4a8aff" stroke-width="1.5" fill="none"/>
+    <circle cx="0" cy="0" r="3" fill="#4a8aff"/>
+  </svg>
+</div>
+<div class="corner corner-br">
+  <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+    <path d="M0 40 L0 0 L40 0" stroke="#4a8aff" stroke-width="1.5" fill="none"/>
+    <circle cx="0" cy="0" r="3" fill="#4a8aff"/>
+  </svg>
+</div>
+
+<div class="login-wrap">
+  <div class="card">
+    <div class="card-accent"></div>
+
+    <div class="card-head">
+      <div class="logo-row">
+        <div class="logo-icon">⬛</div>
+        <div class="logo-text">
+          <strong>DC Manager</strong>
+          Data Center Management System
+        </div>
+      </div>
+      <div class="card-title">// Autenticacion requerida</div>
+    </div>
+
+    <div class="card-body">
+      <div class="error-msg" id="errorMsg"></div>
+
+      <div class="field">
+        <label class="field-label" for="username">USUARIO</label>
+        <div class="field-wrap">
+          <input type="text" id="username" placeholder="username" autocomplete="username" autofocus>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="password">CONTRASENA</label>
+        <div class="field-wrap">
+          <input type="password" id="password" placeholder="••••••••" autocomplete="current-password">
+          <button class="pwd-toggle" id="pwdToggle" type="button" title="Mostrar/ocultar">👁</button>
+        </div>
+      </div>
+
+      <button class="btn-login" id="btnLogin">
+        <span class="btn-text">INICIAR SESION</span>
+        <span class="spinner"></span>
+      </button>
+
+      <div class="status-row">
+        <div class="status-dot"></div>
+        <span id="statusText">Sistema en linea</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const btn      = document.getElementById('btnLogin');
+  const errMsg   = document.getElementById('errorMsg');
+  const pwdInput = document.getElementById('password');
+  const pwdToggle= document.getElementById('pwdToggle');
+
+  function showError(msg) {
+    errMsg.textContent = msg;
+    errMsg.classList.add('show');
+  }
+  function hideError() { errMsg.classList.remove('show'); }
+
+  pwdToggle.addEventListener('click', () => {
+    const show = pwdInput.type === 'password';
+    pwdInput.type = show ? 'text' : 'password';
+    pwdToggle.textContent = show ? '🙈' : '👁';
+  });
+
+  async function doLogin() {
+    hideError();
+    const username = document.getElementById('username').value.trim();
+    const password = pwdInput.value;
+    if (!username || !password) { showError('Ingresa usuario y contrasena.'); return; }
+
+    btn.disabled = true;
+    btn.classList.add('loading');
+
+    try {
+      const res = await fetch('api/auth.php?action=login', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        document.getElementById('statusText').textContent = 'Autenticado. Redirigiendo...';
+        setTimeout(() => { window.location.href = 'index.php'; }, 300);
+      } else {
+        showError(data.error || 'Error de autenticacion.');
+        btn.disabled = false;
+        btn.classList.remove('loading');
+      }
+    } catch(e) {
+      showError('No se pudo conectar al servidor.');
+      btn.disabled = false;
+      btn.classList.remove('loading');
+    }
+  }
+
+  btn.addEventListener('click', doLogin);
+  document.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+
+  // Auto setup on first load
+  fetch('api/auth.php?setup=1', { credentials: 'same-origin' }).catch(()=>{});
+</script>
+</body>
+</html>
