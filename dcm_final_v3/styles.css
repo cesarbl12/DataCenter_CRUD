@@ -214,6 +214,18 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent2); }
 }
 .rack-item:hover    { background: rgba(255,255,255,0.04); border-color: var(--border); }
 .rack-item.selected { background: rgba(42,91,215,0.15);   border-color: rgba(42,91,215,0.4); }
+.rack-item.dragging { opacity: 0.4; }
+.rack-item.drag-over { border-color: var(--accent2); background: rgba(74,158,255,0.12); }
+.rack-drag-handle {
+  cursor: grab; color: var(--text3); font-size: 14px;
+  flex-shrink: 0; line-height: 1; user-select: none;
+}
+.rack-drag-handle:active { cursor: grabbing; }
+
+/* ── Drag & drop de equipos en el rack ─────────────────── */
+.equipo-block.dragging { opacity: 0.4; }
+.equipo-block.drag-over,
+.rack-unit.drag-over { outline: 2px dashed var(--accent2); outline-offset: -2px; background: rgba(74,158,255,0.10); }
 
 .rack-id {
   font-family: var(--mono);

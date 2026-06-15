@@ -97,7 +97,7 @@ export function getLocacionById(db, id)     { return (db.locaciones || []).find(
 export function getSitesByLocacion(db, locId) { return (db.sites || []).filter(s => s.locacionId === locId); }
 export function getSiteById(db, id)           { return (db.sites || []).find(s => s.id === id) || null; }
 
-export function getRacksBySite(db, siteId)  { return (db.racks || []).filter(r => r.siteId === siteId); }
+export function getRacksBySite(db, siteId)  { return (db.racks || []).filter(r => r.siteId === siteId).sort((a, b) => (a.orden ?? 9999) - (b.orden ?? 9999)); }
 export function getRackById(db, id)         { return (db.racks || []).find(r => r.id === id) || null; }
 
 export function getEquiposByRack(db, rackId) {
@@ -203,6 +203,21 @@ export async function deleteRack(db, rackId) {
   db.conexiones = db.conexiones.filter(c => !eqIds.includes(c.equipoId));
   db.equipos    = db.equipos.filter(e => e.rackId !== rackId);
   db.racks      = db.racks.filter(r => r.id !== rackId);
+  return true;
+}
+
+export async function reorderRacks(db, siteId, orderedIds) {
+  // orderedIds = array de rack IDs en el nuevo orden
+  const order = orderedIds.map((id, i) => ({ id, orden: i + 1 }));
+  await jfetch(apiUrl('racks.php?action=reorder'), {
+    method: 'POST',
+    body: JSON.stringify({ order }),
+  });
+  // Actualizar local
+  order.forEach(({ id, orden }) => {
+    const rack = db.racks.find(r => r.id === id);
+    if (rack) rack.orden = orden;
+  });
   return true;
 }
 

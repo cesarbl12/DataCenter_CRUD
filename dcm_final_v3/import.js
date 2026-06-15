@@ -1,5 +1,5 @@
 // import.js — Importacion CSV por entidad separada
-// Tabs: Locaciones | Sites | Racks | Equipos | Conexiones
+// Tabs: Racks | Equipos | Conexiones
 import * as DB from './db.js';
 
 // ─────────────────────────────────────────────────────────────
@@ -44,17 +44,19 @@ function normTipo(raw) {
 // ─────────────────────────────────────────────────────────────
 // RESOLVERS
 // ─────────────────────────────────────────────────────────────
-function findLocacion(db,nombre){
-  const n=nombre.trim().toLowerCase();
-  return db.locaciones.find(l=>l.nombre.toLowerCase()===n)||null;
-}
 function findSite(db,nombre){
   const n=nombre.trim().toLowerCase();
   return db.sites.find(s=>s.nombre.toLowerCase()===n)||null;
 }
-function findRack(db,nombre){
+// Llave natural: nombre + site (case-insensitive). Fallback: id interno
+// (para compatibilidad con CSVs viejos que pudieran traer el id).
+function findRack(db,nombre,siteId){
   const n=nombre.trim().toLowerCase();
-  return db.racks.find(r=>r.nombre.toLowerCase()===n)||db.racks.find(r=>r.id===nombre.trim())||null;
+  if (siteId) {
+    const bySiteAndName = db.racks.find(r=>r.siteId===siteId && r.nombre.toLowerCase()===n);
+    if (bySiteAndName) return bySiteAndName;
+  }
+  return db.racks.find(r=>r.nombre.toLowerCase()===n) || db.racks.find(r=>r.id===nombre.trim()) || null;
 }
 function findEquipo(db,id){
   const v=(id||'').trim().toLowerCase();
@@ -68,40 +70,6 @@ function findEquipo(db,id){
 // PARSERS POR ENTIDAD
 // Lee header para encontrar columnas por nombre
 // ─────────────────────────────────────────────────────────────
-
-// LOCACIONES — CSV: nombre
-function parseLocaciones(rows, db) {
-  const header = rows[0].map(h=>h.trim().toLowerCase());
-  const iNombre = header.findIndex(h=>h==='nombre');
-  if (iNombre<0) throw new Error('Columna "nombre" no encontrada en el CSV.');
-  return rows.slice(1)
-    .filter(r=>r.some(v=>v.trim()!==''))
-    .map((r,i)=>{
-      const nombre = cv(r,iNombre,'').trim();
-      const exist  = nombre ? findLocacion(db,nombre) : null;
-      return { _row:i+2, nombre, _existId:exist?exist.id:null, _missing:!nombre };
-    });
-}
-
-// SITES — CSV: nombre, locacion
-function parseSites(rows, db) {
-  const header   = rows[0].map(h=>h.trim().toLowerCase());
-  const iNombre  = header.findIndex(h=>h==='nombre');
-  const iLocNom  = header.findIndex(h=>h==='locacion'||h==='locacion_nombre'||h==='locacion_id');
-  if (iNombre<0) throw new Error('Columna "nombre" no encontrada.');
-  if (iLocNom<0) throw new Error('Columna "locacion" no encontrada.');
-  return rows.slice(1)
-    .filter(r=>r.some(v=>v.trim()!==''))
-    .map((r,i)=>{
-      const nombre  = cv(r,iNombre,'').trim();
-      const locNom  = cv(r,iLocNom,'').trim();
-      const exist   = nombre ? findSite(db,nombre) : null;
-      const locObj  = locNom ? findLocacion(db,locNom) : null;
-      return { _row:i+2, nombre, locacion:locNom,
-               _locId:locObj?locObj.id:null, _existId:exist?exist.id:null,
-               _missingNombre:!nombre, _missingLoc:!locNom, _locNoExiste:!locObj&&!!locNom };
-    });
-}
 
 // RACKS — CSV: nombre, site, ubicacion, unidades
 function parseRacks(rows, db) {
@@ -120,8 +88,8 @@ function parseRacks(rows, db) {
       const ubicacion = iUbic>=0 ? cv(r,iUbic,'N/A') : 'N/A';
       const uRaw      = iUnid>=0 ? cv(r,iUnid,'') : '';
       const unidades  = (uRaw!==''&&parseInt(uRaw)>0) ? parseInt(uRaw) : 42;
-      const exist     = nombre ? findRack(db,nombre) : null;
       const siteObj   = siteNom ? findSite(db,siteNom) : null;
+      const exist     = (nombre && siteObj) ? findRack(db,nombre,siteObj.id) : null;
       return { _row:i+2, nombre, site:siteNom, ubicacion, unidades,
                _siteId:siteObj?siteObj.id:null, _existId:exist?exist.id:null,
                _missingNombre:!nombre, _missingSite:!siteNom, _siteNoExiste:!siteObj&&!!siteNom };
@@ -133,6 +101,7 @@ function parseEquipos(rows, db) {
   const header    = rows[0].map(h=>h.trim().toLowerCase());
   const iModelo   = header.findIndex(h=>h==='modelo');
   const iRack     = header.findIndex(h=>h==='rack'||h==='rack_nombre'||h==='rack_id');
+  const iSite     = header.findIndex(h=>h==='site'||h==='site_nombre'||h==='site_id');
   const iSerie    = header.findIndex(h=>h==='numero_serie'||h==='serie'||h==='sn');
   const iPuerto   = header.findIndex(h=>h==='puerto_conexion'||h==='puerto');
   const iServicio = header.findIndex(h=>h==='servicio');
@@ -147,6 +116,7 @@ function parseEquipos(rows, db) {
     .map((r,i)=>{
       const modelo      = cv(r,iModelo,'').trim();
       const rackNom     = cv(r,iRack,'').trim();
+      const siteNom     = iSite>=0 ? cv(r,iSite,'').trim() : '';
       const numeroSerie = iSerie>=0    ? cv(r,iSerie,'N/A')    : 'N/A';
       const puerto      = iPuerto>=0   ? cv(r,iPuerto,'N/A')   : 'N/A';
       const servicio    = iServicio>=0 ? cv(r,iServicio,'N/A') : 'N/A';
@@ -154,8 +124,9 @@ function parseEquipos(rows, db) {
       const estado      = estadoRaw===''?'Inactivo':estadoRaw;
       const uSizeRaw    = iUSize>=0    ? cv(r,iUSize,'')       : '';
       const uSize       = (uSizeRaw!==''&&parseInt(uSizeRaw)>0)?parseInt(uSizeRaw):1;
-      const rackObj     = rackNom ? findRack(db,rackNom) : null;
-      const rk          = rackNom.toLowerCase()||'__unknown__';
+      const siteObj     = siteNom ? findSite(db,siteNom) : null;
+      const rackObj     = rackNom ? findRack(db,rackNom, siteObj?siteObj.id:null) : null;
+      const rk          = (rackObj?rackObj.id:rackNom.toLowerCase())||'__unknown__';
       if (!autoUPos[rk]) autoUPos[rk]=1;
       const uPosRaw     = iUPos>=0 ? cv(r,iUPos,'') : '';
       let uPos;
@@ -214,39 +185,16 @@ function parseConexiones(rows, db) {
 // ─────────────────────────────────────────────────────────────
 // PREVIEW BUILDERS
 // ─────────────────────────────────────────────────────────────
-function previewLocaciones(data) {
-  if (!data.length) return '<div class="import-hint">Sin datos.</div>';
-  let html='<table><thead><tr><th>#</th><th>Nombre</th><th>Estado</th></tr></thead><tbody>';
-  html+=data.map(l=>`<tr>
-    <td>${l._row}</td>
-    <td class="${l._missing?'cell-warn':'cell-ok'}">${esc(l.nombre||'(vacío)')}</td>
-    <td class="${l._existId?'cell-na':l._missing?'cell-warn':'cell-new'}">${l._missing?'⚠ Nombre requerido':l._existId?'Ya existe ('+l._existId+')':'Nuevo'}</td>
-  </tr>`).join('');
-  return html+'</tbody></table>';
-}
-
-function previewSites(data) {
-  if (!data.length) return '<div class="import-hint">Sin datos.</div>';
-  let html='<table><thead><tr><th>#</th><th>Nombre</th><th>Locacion</th><th>Estado</th></tr></thead><tbody>';
-  html+=data.map(s=>`<tr>
-    <td>${s._row}</td>
-    <td class="${s._missingNombre?'cell-warn':'cell-ok'}">${esc(s.nombre||'(vacío)')}</td>
-    <td class="${s._missingLoc||s._locNoExiste?'cell-warn':'cell-ok'}">${s._missingLoc?'⚠ Requerida':s._locNoExiste?'⚠ No existe: '+esc(s.locacion):esc(s.locacion)}</td>
-    <td class="${s._existId?'cell-na':s._missingNombre||s._missingLoc||s._locNoExiste?'cell-warn':'cell-new'}">${s._existId?'Ya existe':s._missingNombre||s._missingLoc||s._locNoExiste?'⚠ Con error':'Nuevo'}</td>
-  </tr>`).join('');
-  return html+'</tbody></table>';
-}
-
 function previewRacks(data) {
   if (!data.length) return '<div class="import-hint">Sin datos.</div>';
-  let html='<table><thead><tr><th>#</th><th>Nombre</th><th>Site</th><th>Ubicacion</th><th>U</th><th>Estado</th></tr></thead><tbody>';
+  let html='<table><thead><tr><th>#</th><th>Nombre</th><th>Site</th><th>Ubicacion</th><th>U</th><th>Resultado</th></tr></thead><tbody>';
   html+=data.map(r=>`<tr>
     <td>${r._row}</td>
     <td class="${r._missingNombre?'cell-warn':'cell-ok'}">${esc(r.nombre||'(vacío)')}</td>
     <td class="${r._missingSite||r._siteNoExiste?'cell-warn':'cell-ok'}">${r._missingSite?'⚠ Requerido':r._siteNoExiste?'⚠ No existe: '+esc(r.site):esc(r.site)}</td>
     <td class="${r.ubicacion==='N/A'?'cell-na':'cell-ok'}">${esc(r.ubicacion)}</td>
     <td class="${r.unidades===42?'cell-na':'cell-ok'}">${r.unidades}</td>
-    <td class="${r._existId?'cell-na':r._missingNombre||r._missingSite||r._siteNoExiste?'cell-warn':'cell-new'}">${r._existId?'Ya existe':r._missingNombre||r._missingSite||r._siteNoExiste?'⚠ Con error':'Nuevo'}</td>
+    <td class="${r._missingNombre||r._missingSite||r._siteNoExiste?'cell-warn':r._existId?'cell-na':'cell-new'}">${r._missingNombre||r._missingSite||r._siteNoExiste?'⚠ Con error':r._existId?'Actualizar':'Nuevo'}</td>
   </tr>`).join('');
   return html+'</tbody></table>';
 }
@@ -263,7 +211,7 @@ function previewEquipos(data) {
     <td class="${e.estado==='Inactivo'?'cell-na':'cell-ok'}">${esc(e.estado)}</td>
     <td class="cell-ok">${e.uPos}</td>
     <td class="${e.uSize===1?'cell-na':'cell-ok'}">${e.uSize}</td>
-    <td class="${e._existId?'cell-na':e._missingModelo||e._rackNoExiste?'cell-warn':'cell-new'}">${e._existId?'Ya existe (omitido)':e._missingModelo||e._rackNoExiste?'⚠ Con error':'Nuevo'}</td>
+    <td class="${e._missingModelo||e._rackNoExiste?'cell-warn':e._existId?'cell-na':'cell-new'}">${e._missingModelo||e._rackNoExiste?'⚠ Con error':e._existId?'Actualizar':'Nuevo'}</td>
   </tr>`).join('');
   return html+'</tbody></table>';
 }
@@ -278,7 +226,7 @@ function previewConexiones(data) {
     <td class="cell-ok">${esc(c.tipo)}</td>
     <td class="${c.estado==='Inactivo'?'cell-na':'cell-ok'}">${esc(c.estado)}</td>
     <td class="${c.destino==='N/A'?'cell-na':'cell-ok'}">${esc(c.destino)}</td>
-    <td class="${c._existId?'cell-na':c._missingId||c._eqNoExiste?'cell-warn':'cell-new'}">${c._existId?'Ya existe (omitido)':c._missingId||c._eqNoExiste?'⚠ Con error':'Nueva'}</td>
+    <td class="${c._missingId||c._eqNoExiste?'cell-warn':c._existId?'cell-na':'cell-new'}">${c._missingId||c._eqNoExiste?'⚠ Con error':c._existId?'Actualizar':'Nueva'}</td>
   </tr>`).join('');
   html+='</tbody></table>';
   if (data.length>80) html+=`<div class="import-hint">Mostrando 80 de ${data.length} filas.</div>`;
@@ -288,42 +236,22 @@ function previewConexiones(data) {
 // ─────────────────────────────────────────────────────────────
 // IMPORTADORES POR ENTIDAD
 // ─────────────────────────────────────────────────────────────
-async function importLocaciones(db, data) {
-  let ok=0; const errors=[];
-  for (const loc of data) {
-    if (loc._missing)  { errors.push(`Fila ${loc._row}: nombre vacío.`); continue; }
-    if (loc._existId)  { errors.push(`Fila ${loc._row}: "${loc.nombre}" ya existe (omitido).`); continue; }
-    try { await DB.insertLocacion(db,{nombre:loc.nombre}); ok++; }
-    catch(e) { errors.push(`Fila ${loc._row} "${loc.nombre}": ${e.message}`); }
-  }
-  return {ok, err:errors.length, errors};
-}
-
-async function importSites(db, data) {
-  let ok=0; const errors=[];
-  for (const s of data) {
-    if (s._missingNombre) { errors.push(`Fila ${s._row}: nombre vacío.`); continue; }
-    if (s._missingLoc)    { errors.push(`Fila ${s._row} "${s.nombre}": locacion vacía.`); continue; }
-    if (s._locNoExiste)   { errors.push(`Fila ${s._row} "${s.nombre}": locacion "${s.locacion}" no existe.`); continue; }
-    if (s._existId)       { errors.push(`Fila ${s._row}: "${s.nombre}" ya existe (omitido).`); continue; }
-    const locObj = findLocacion(db, s.locacion);
-    if (!locObj) { errors.push(`Fila ${s._row}: locacion "${s.locacion}" no encontrada.`); continue; }
-    try { await DB.insertSite(db,{locacionId:locObj.id, nombre:s.nombre}); ok++; }
-    catch(e) { errors.push(`Fila ${s._row} "${s.nombre}": ${e.message}`); }
-  }
-  return {ok, err:errors.length, errors};
-}
-
 async function importRacks(db, data) {
   let ok=0; const errors=[];
   for (const r of data) {
     if (r._missingNombre) { errors.push(`Fila ${r._row}: nombre vacío.`); continue; }
     if (r._missingSite)   { errors.push(`Fila ${r._row} "${r.nombre}": site vacío.`); continue; }
     if (r._siteNoExiste)  { errors.push(`Fila ${r._row} "${r.nombre}": site "${r.site}" no existe.`); continue; }
-    if (r._existId)       { errors.push(`Fila ${r._row}: "${r.nombre}" ya existe (omitido).`); continue; }
     const siteObj = findSite(db, r.site);
     if (!siteObj) { errors.push(`Fila ${r._row}: site "${r.site}" no encontrado.`); continue; }
-    try { await DB.insertRack(db,{siteId:siteObj.id, nombre:r.nombre, ubicacion:r.ubicacion, unidades:r.unidades}); ok++; }
+    try {
+      if (r._existId) {
+        await DB.updateRack(db,{id:r._existId, siteId:siteObj.id, nombre:r.nombre, ubicacion:r.ubicacion, unidades:r.unidades});
+      } else {
+        await DB.insertRack(db,{siteId:siteObj.id, nombre:r.nombre, ubicacion:r.ubicacion, unidades:r.unidades});
+      }
+      ok++;
+    }
     catch(e) { errors.push(`Fila ${r._row} "${r.nombre}": ${e.message}`); }
   }
   return {ok, err:errors.length, errors};
@@ -335,12 +263,16 @@ async function importEquipos(db, data) {
     if (e._missingModelo) { errors.push(`Fila ${e._row}: modelo vacío.`); continue; }
     if (e._missingRack)   { errors.push(`Fila ${e._row} "${e.modelo}": rack vacío.`); continue; }
     if (e._rackNoExiste)  { errors.push(`Fila ${e._row} "${e.modelo}": rack "${e.rack}" no existe.`); continue; }
-    if (e._existId)       { ok++; continue; }  // ya existe, omitir silenciosamente
-    const rackObj = findRack(db, e.rack);
-    if (!rackObj) { errors.push(`Fila ${e._row}: rack "${e.rack}" no encontrado.`); continue; }
+    const rackId = e._rackId;
+    if (!rackId) { errors.push(`Fila ${e._row}: rack "${e.rack}" no encontrado.`); continue; }
     try {
-      await DB.insertEquipo(db,{rackId:rackObj.id, modelo:e.modelo, numeroSerie:e.numeroSerie,
-        puertoConexion:e.puerto, servicio:e.servicio, estado:e.estado, uPos:e.uPos, uSize:e.uSize});
+      if (e._existId) {
+        await DB.updateEquipo(db,{id:e._existId, rackId, modelo:e.modelo, numeroSerie:e.numeroSerie,
+          puertoConexion:e.puerto, servicio:e.servicio, estado:e.estado, uPos:e.uPos, uSize:e.uSize});
+      } else {
+        await DB.insertEquipo(db,{rackId, modelo:e.modelo, numeroSerie:e.numeroSerie,
+          puertoConexion:e.puerto, servicio:e.servicio, estado:e.estado, uPos:e.uPos, uSize:e.uSize});
+      }
       ok++;
     }
     catch(e2) { errors.push(`Fila ${e._row} "${e.modelo}": ${e2.message}`); }
@@ -354,10 +286,16 @@ async function importConexiones(db, data) {
     if (conn._missingId)   { errors.push(`Fila ${conn._row}: id/puerto vacío.`); continue; }
     if (conn._missingEqId) { errors.push(`Fila ${conn._row}: equipo_id vacío.`); continue; }
     if (conn._eqNoExiste)  { errors.push(`Fila ${conn._row}: equipo "${conn.equipoId}" no existe.`); continue; }
-    if (conn._existId)     { ok++; continue; }  // ya existe, omitir silenciosamente
     const eqObj = findEquipo(db, conn.equipoId);
     if (!eqObj) { errors.push(`Fila ${conn._row}: equipo "${conn.equipoId}" no encontrado.`); continue; }
-    try { await DB.insertConexion(db,{id:conn.id, equipoId:eqObj.id, tipo:conn.tipo, estado:conn.estado, destino:conn.destino}); ok++; }
+    try {
+      if (conn._existId) {
+        await DB.updateConexion(db,{id:conn.id, equipoId:eqObj.id, tipo:conn.tipo, estado:conn.estado, destino:conn.destino});
+      } else {
+        await DB.insertConexion(db,{id:conn.id, equipoId:eqObj.id, tipo:conn.tipo, estado:conn.estado, destino:conn.destino});
+      }
+      ok++;
+    }
     catch(e) { errors.push(`Fila ${conn._row} "${conn.id}": ${e.message}`); }
   }
   return {ok, err:errors.length, errors};
@@ -367,45 +305,6 @@ async function importConexiones(db, data) {
 // CONFIG DE TABS — define cada pestaña de forma declarativa
 // ─────────────────────────────────────────────────────────────
 const TABS = {
-  locaciones: {
-    label: 'Locaciones', emoji: '🏢',
-    parse:   (rows,db) => parseLocaciones(rows,db),
-    preview: (data)    => previewLocaciones(data),
-    import:  (db,data) => importLocaciones(db,data),
-    stats:   (data)    => ({
-      Registros: data.length,
-      Nuevos: data.filter(d=>!d._existId&&!d._missing).length,
-      'Ya existen': data.filter(d=>d._existId).length,
-      Errores: data.filter(d=>d._missing).length,
-    }),
-    hint: {
-      title: 'Locaciones',
-      note:  'Una locacion es una sede fisica (edificio, ciudad). Solo requiere <b>nombre</b>.',
-      cols:  [{ name:'nombre', req:true, desc:'Nombre de la sede fisica' }],
-      example: [['Sede Central'],['Sucursal Norte'],['DataCenter MTY']],
-    },
-  },
-  sites: {
-    label: 'Sites', emoji: '📍',
-    parse:   (rows,db) => parseSites(rows,db),
-    preview: (data)    => previewSites(data),
-    import:  (db,data) => importSites(db,data),
-    stats:   (data)    => ({
-      Registros: data.length,
-      Nuevos: data.filter(d=>!d._existId&&!d._missingNombre&&!d._locNoExiste).length,
-      'Ya existen': data.filter(d=>d._existId).length,
-      Errores: data.filter(d=>d._missingNombre||d._missingLoc||d._locNoExiste).length,
-    }),
-    hint: {
-      title: 'Sites',
-      note:  'Un site es una sala o zona dentro de una locacion. La <b>locacion debe existir</b> primero en la BD.',
-      cols:  [
-        { name:'nombre',   req:true,  desc:'Nombre del site' },
-        { name:'locacion', req:true,  desc:'Nombre exacto de la locacion padre' },
-      ],
-      example: [['Site Core','Sede Central'],['Site Edge','Sede Central'],['Site GDL','Sucursal Norte']],
-    },
-  },
   racks: {
     label: 'Racks', emoji: '🗄️',
     parse:   (rows,db) => parseRacks(rows,db),
@@ -413,13 +312,13 @@ const TABS = {
     import:  (db,data) => importRacks(db,data),
     stats:   (data)    => ({
       Registros: data.length,
-      Nuevos: data.filter(d=>!d._existId&&!d._missingNombre&&!d._siteNoExiste).length,
-      'Ya existen': data.filter(d=>d._existId).length,
+      Nuevos: data.filter(d=>!d._existId&&!d._missingNombre&&!d._missingSite&&!d._siteNoExiste).length,
+      'Actualizar': data.filter(d=>d._existId).length,
       Errores: data.filter(d=>d._missingNombre||d._missingSite||d._siteNoExiste).length,
     }),
     hint: {
       title: 'Racks',
-      note:  'El <b>site debe existir</b> primero. <b>ubicacion</b> y <b>unidades</b> son opcionales (default: N/A y 42U).',
+      note:  'El <b>site debe existir</b> primero. Si ya existe un rack con el mismo <b>nombre</b> en el mismo <b>site</b>, se <b>actualiza</b> en lugar de crear uno nuevo. <b>ubicacion</b> y <b>unidades</b> son opcionales (default: N/A y 42U).',
       cols:  [
         { name:'nombre',    req:true,  desc:'Nombre del rack' },
         { name:'site',      req:true,  desc:'Nombre exacto del site padre' },
@@ -436,12 +335,13 @@ const TABS = {
     import:  (db,data) => importEquipos(db,data),
     stats:   (data)    => ({
       Registros: data.length,
-      Validos: data.filter(d=>!d._missingModelo&&!d._rackNoExiste).length,
+      Nuevos: data.filter(d=>!d._existId&&!d._missingModelo&&!d._missingRack&&!d._rackNoExiste).length,
+      'Actualizar': data.filter(d=>d._existId).length,
       Errores: data.filter(d=>d._missingModelo||d._missingRack||d._rackNoExiste).length,
     }),
     hint: {
       title: 'Equipos',
-      note:  'El <b>rack debe existir</b>. <b>u_pos</b> vacío = asignación automática secuencial.',
+      note:  'El <b>rack debe existir</b>. Si ya existe un equipo con el mismo <b>número de serie</b> (o el mismo modelo en el mismo rack), se <b>actualiza</b> en lugar de crear uno nuevo. <b>u_pos</b> vacío = asignación automática secuencial.',
       cols:  [
         { name:'modelo',          req:true,  desc:'Modelo del equipo' },
         { name:'rack',            req:true,  desc:'Nombre exacto del rack' },
@@ -467,12 +367,12 @@ const TABS = {
     stats:   (data)    => ({
       Registros: data.length,
       Nuevas: data.filter(d=>!d._existId&&!d._missingId&&!d._eqNoExiste).length,
-      'Ya existen': data.filter(d=>d._existId).length,
+      'Actualizar': data.filter(d=>d._existId).length,
       Errores: data.filter(d=>d._missingId||d._missingEqId||d._eqNoExiste).length,
     }),
     hint: {
       title: 'Conexiones',
-      note:  '<b>equipo_id</b> acepta numero de serie, ID interno o modelo. El equipo debe existir en BD.',
+      note:  '<b>equipo_id</b> acepta numero de serie, ID interno o modelo. El equipo debe existir en BD. Si la conexion (equipo + puerto) ya existe, se <b>actualiza</b>.',
       cols:  [
         { name:'equipo_id', req:true,  desc:'N° de serie o ID del equipo' },
         { name:'id',        req:true,  desc:'Identificador del puerto (ej. Gi1/0/1)' },
@@ -526,7 +426,7 @@ function buildHint(cfg) {
 // MODAL
 // ─────────────────────────────────────────────────────────────
 export function openImportModal(db, onDone) {
-  let activeTab = 'locaciones';
+  let activeTab = 'racks';
   let parsedData = null;
 
   const { openModal } = window._modalAPI;

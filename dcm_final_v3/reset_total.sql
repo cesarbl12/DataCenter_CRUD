@@ -47,6 +47,7 @@ CREATE TABLE racks (
   nombre    VARCHAR(100) NOT NULL DEFAULT '',
   ubicacion VARCHAR(100) NOT NULL DEFAULT '',
   unidades  INT          NOT NULL DEFAULT 42,
+  orden     INT          NOT NULL DEFAULT 0,
   PRIMARY KEY (id),
   CONSTRAINT fk_rack_site
     FOREIGN KEY (site_id) REFERENCES sites(id)
@@ -92,10 +93,10 @@ INSERT INTO sites (id, locacion_id, nombre) VALUES
   ('SITE-B', 'LOC-1', 'Site B'),
   ('SITE-C', 'LOC-2', 'Site C');
 
-INSERT INTO racks (id, site_id, nombre, ubicacion, unidades) VALUES
-  ('R1', 'SITE-A', 'Rack Principal',  'Sala A - Fila 1', 42),
-  ('R2', 'SITE-A', 'Rack Secundario', 'Sala A - Fila 2', 24),
-  ('R3', 'SITE-B', 'Rack Core',       'Sala B - Fila 1', 42);
+INSERT INTO racks (id, site_id, nombre, ubicacion, unidades, orden) VALUES
+  ('R1', 'SITE-A', 'Rack Principal',  'Sala A - Fila 1', 42, 1),
+  ('R2', 'SITE-A', 'Rack Secundario', 'Sala A - Fila 2', 24, 2),
+  ('R3', 'SITE-B', 'Rack Core',       'Sala B - Fila 1', 42, 1);
 
 INSERT INTO equipos (id, rack_id, modelo, numero_serie, puerto_conexion, servicio, estado, u_pos, u_size) VALUES
   ('SW-CORE-01', 'R1', 'Cisco Catalyst 9300',    'FJC2342A001', 'Gi1/0/1', 'Core Network', 'Activo', 1, 2),

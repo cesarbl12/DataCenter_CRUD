@@ -515,6 +515,9 @@ function showForm(userId) {
     card.style.opacity        = disabled ? '0.45' : '';
     card.style.pointerEvents  = disabled ? 'none' : '';
   });
+  // Sincronizar visibilidad de locaciones con el rol recien establecido
+  // (el cambio programatico de radio.checked no dispara 'change')
+  updateLocWrap();
 
   document.getElementById('formCard').classList.add('open');
   document.getElementById('formCard').scrollIntoView({ behavior:'smooth', block:'nearest' });
@@ -574,6 +577,7 @@ document.getElementById('rolCards').addEventListener('click', e => {
   radio.checked = true;
   document.querySelectorAll('.rol-card').forEach(c => c.classList.remove('selected'));
   card.classList.add('selected');
+  updateLocWrap();
 });
 
 // ── Save ─────────────────────────────────────────────────

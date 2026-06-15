@@ -32,6 +32,17 @@ export function esc(str) {
 function safe(s)     { return (s || '').toLowerCase(); }
 function safeText(s) { return s?.trim() ? s : '—'; }
 
+// Etiqueta visible para un equipo: "Modelo (N° Serie)" — nunca expone el ID interno
+function equipoLabel(eq) {
+  if (!eq) return '—';
+  const modelo = (eq.modelo||'').trim();
+  const serie  = (eq.numeroSerie||'').trim();
+  if (modelo && serie && serie!=='N/A') return `${modelo} (${serie})`;
+  if (modelo) return modelo;
+  if (serie && serie!=='N/A') return serie;
+  return '—';
+}
+
 function pillClass(estado) {
   const e = (estado||'').toLowerCase();
   if (e==='activo') return 'pill-active';
@@ -215,7 +226,7 @@ function initGlobalSearch() {
         return `<div class="search-result-item" data-type="rack" data-id="${esc(r.id)}">
           <span class="sr-icon">🗄</span>
           <span class="sr-main">${esc(r.nombre||r.id)}</span>
-          <span class="sr-sub">${esc(r.id)} · ${esc(site?.nombre||'?')} · ${esc(loc?.nombre||'?')}</span>
+          <span class="sr-sub">${esc(site?.nombre||'?')} · ${esc(loc?.nombre||'?')}</span>
           <span class="sr-badge">${r.unidades}U</span>
         </div>`;
       }).join('');
@@ -229,8 +240,8 @@ function initGlobalSearch() {
         const rack = DB.getRackById(db, e.rackId);
         return `<div class="search-result-item" data-type="equipo" data-id="${esc(e.id)}">
           <span class="sr-icon">💾</span>
-          <span class="sr-main">${esc(e.id)}</span>
-          <span class="sr-sub">${esc(e.modelo||'—')} · ${esc(rack?.nombre||e.rackId)}</span>
+          <span class="sr-main">${esc(equipoLabel(e))}</span>
+          <span class="sr-sub">${esc(rack?.nombre||'—')}</span>
           <span class="pill ${pillClass(e.estado)} sr-pill">${esc((e.estado||'').toUpperCase())}</span>
         </div>`;
       }).join('');
@@ -245,7 +256,7 @@ function initGlobalSearch() {
         return `<div class="search-result-item" data-type="conexion" data-eqid="${esc(c.equipoId)}" data-id="${esc(c.id)}">
           <span class="sr-icon">🔌</span>
           <span class="sr-main">${esc(c.id)}</span>
-          <span class="sr-sub">${esc(c.tipo||'—')} → ${esc(c.destino||'—')} · ${esc(eq?.id||c.equipoId)}</span>
+          <span class="sr-sub">${esc(c.tipo||'—')} → ${esc(c.destino||'—')} · ${esc(equipoLabel(eq))}</span>
           <span class="pill ${pillClass(c.estado)} sr-pill">${esc((c.estado||'').toUpperCase())}</span>
         </div>`;
       }).join('');
@@ -505,24 +516,27 @@ function renderRackList() {
     el.innerHTML = '<div class="empty-state">Sin racks en este site.<br>Pulsa + Nuevo para crear uno.</div>';
     return;
   }
+  const canDrag = (typeof __canWrite==='undefined'||__canWrite());
   el.innerHTML = '';
   racks.forEach(rack => {
     const div = document.createElement('div');
     div.className = 'rack-item' + (state.rack?.id === rack.id ? ' selected' : '');
+    div.dataset.rackId = rack.id;
     div.innerHTML = `
+      ${canDrag ? '<span class="rack-drag-handle" title="Arrastrar para reordenar">⠿</span>' : ''}
       <div class="rack-info">
         <div class="rack-name">${esc(rack.nombre || rack.id)}</div>
-        <div class="rack-meta"><span class="rack-id-inline">${esc(rack.id)}</span> · ${esc(rack.ubicacion||'—')}</div>
+        <div class="rack-meta">${esc(rack.ubicacion||'—')}</div>
       </div>
       <div class="rack-ubadge">${rack.unidades}U</div>
       <div class="rack-actions">
-        ${(typeof __canWrite==='undefined'||__canWrite()) ? '<button class="btn-rack-edit" title="Editar" data-id="'+esc(rack.id)+'">✏</button><button class="btn-rack-delete" title="Eliminar" data-id="'+esc(rack.id)+'">🗑</button>' : ''}
+        ${canDrag ? '<button class="btn-rack-edit" title="Editar" data-id="'+esc(rack.id)+'">✏</button><button class="btn-rack-delete" title="Eliminar" data-id="'+esc(rack.id)+'">🗑</button>' : ''}
       </div>`;
     div.querySelector('.rack-actions').addEventListener('click', e => e.stopPropagation());
     div.querySelector('.btn-rack-edit')?.addEventListener('click', e => { e.stopPropagation(); selectRack(rack); openRackModal(rack); });
     div.querySelector('.btn-rack-delete')?.addEventListener('click', e => {
       e.stopPropagation();
-      showConfirm(`¿Eliminar rack ${rack.id} y todo su contenido?`, async () => {
+      showConfirm(`¿Eliminar rack "${esc(rack.nombre||'')}" y todo su contenido?`, async () => {
         await DB.deleteRack(db, rack.id);
         if (state.rack?.id === rack.id) { state.rack=null; state.equipo=null; state.conexion=null; }
         syncStateSelection(); refreshAll();
@@ -530,8 +544,68 @@ function renderRackList() {
     });
     div.onclick = () => selectRack(rack);
     div.addEventListener('contextmenu', e => { e.preventDefault(); showRackCtxMenu(e, rack); });
+
+    // ── Drag & drop para reordenar racks ──────────────────
+    if (canDrag) {
+      div.draggable = true;
+      div.addEventListener('dragstart', e => {
+        _rackDrag.rackId = rack.id;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', rack.id);
+        div.classList.add('dragging');
+      });
+      div.addEventListener('dragend', () => {
+        div.classList.remove('dragging');
+        el.querySelectorAll('.rack-item.drag-over').forEach(x => x.classList.remove('drag-over'));
+        _rackDrag.rackId = null;
+      });
+      div.addEventListener('dragover', e => {
+        if (!_rackDrag.rackId || _rackDrag.rackId === rack.id) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        div.classList.add('drag-over');
+      });
+      div.addEventListener('dragleave', () => div.classList.remove('drag-over'));
+      div.addEventListener('drop', async e => {
+        e.preventDefault();
+        div.classList.remove('drag-over');
+        const draggedId = _rackDrag.rackId;
+        _rackDrag.rackId = null;
+        if (!draggedId || draggedId === rack.id) return;
+        await handleRackReorder(draggedId, rack.id);
+      });
+    }
+
     el.appendChild(div);
   });
+}
+
+// ── Estado de arrastre de racks ────────────────────────────
+const _rackDrag = { rackId: null };
+
+// Reordena el rack `draggedId` para colocarlo justo antes del rack `targetId`
+// dentro del site actual, persistiendo el nuevo orden en la base de datos.
+async function handleRackReorder(draggedId, targetId) {
+  if (!state.site) return;
+  const racks = DB.getRacksBySite(db, state.site.id);
+  const ids = racks.map(r => r.id);
+
+  const fromIdx = ids.indexOf(draggedId);
+  const toIdx   = ids.indexOf(targetId);
+  if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return;
+
+  ids.splice(fromIdx, 1);
+  const insertAt = ids.indexOf(targetId);
+  ids.splice(insertAt, 0, draggedId);
+
+  try {
+    await DB.reorderRacks(db, state.site.id, ids);
+    renderRackList();
+  } catch (err) {
+    showAlert(`No se pudo reordenar: ${err.message || err}`);
+    await DB.loadFromServer(db);
+    renderRackList();
+  }
 }
 
 function selectRack(rack) { state.rack=rack; state.equipo=null; state.conexion=null; refreshAll(); }
@@ -564,7 +638,7 @@ function renderRackView() {
   const usados  = equipos.reduce((s,e)=>s+Math.max(1,e.uSize||0),0);
   const libres  = Math.max(0, rack.unidades - usados);
 
-  titleEl.textContent = `RACK ${rack.id} · ${rack.nombre||''}`;
+  titleEl.textContent = `RACK · ${rack.nombre||''}`;
   statsEl.innerHTML = `
     <span>UBICACION: <b class="rack-stat-val">${esc(rack.ubicacion||'—')}</b></span>
     <span>TOTAL: <b class="rack-stat-val">${rack.unidades}U</b></span>
@@ -639,7 +713,7 @@ function buildEquipoBlock(eq) {
     <span class="screw">◎</span>
     <span class="u-num">${String(eq.uPos).padStart(2,'0')}</span>
     <div class="rack-led-divider"></div>
-    <span class="eq-name">${esc(eq.id)}</span>
+    <span class="eq-name">${esc((eq.numeroSerie&&eq.numeroSerie!=='N/A')?eq.numeroSerie:'Sin serie')}</span>
     <span class="eq-model">${esc(eq.modelo||'')}</span>
     <span class="port-badge ${portClass(eq.puertoConexion)}">${esc(eq.puertoConexion||'')}</span>
     <div style="flex:1;"></div>
@@ -744,13 +818,13 @@ async function handleSwap(targetEqId) {
   const sizeA=Math.max(1,eqA.uSize||1), sizeB=Math.max(1,eqB.uSize||1);
   const U=state.rack.unidades;
   const endA=posB+sizeA-1, endB=posA+sizeB-1;
-  if (posB<1||endA>U) { showAlert(`No cabe ${eqA.id} en U${posB} (termina en U${endA}, max ${U}).`); _drag.equipoId=null; _drag.fromUPos=null; return; }
-  if (posA<1||endB>U) { showAlert(`No cabe ${eqB.id} en U${posA} (termina en U${endB}, max ${U}).`); _drag.equipoId=null; _drag.fromUPos=null; return; }
+  if (posB<1||endA>U) { showAlert(`No cabe ${equipoLabel(eqA)} en U${posB} (termina en U${endA}, max ${U}).`); _drag.equipoId=null; _drag.fromUPos=null; return; }
+  if (posA<1||endB>U) { showAlert(`No cabe ${equipoLabel(eqB)} en U${posA} (termina en U${endB}, max ${U}).`); _drag.equipoId=null; _drag.fromUPos=null; return; }
   const terceros = DB.getEquiposByRack(db,state.rack.id).filter(e=>e.id!==eqA.id&&e.id!==eqB.id);
   for (const other of terceros) {
     const oS=parseInt(other.uPos), oE=oS+Math.max(1,parseInt(other.uSize))-1;
-    if (posB<=oE&&endA>=oS) { showAlert(`Colision de ${eqA.id} con ${other.id}.`); _drag.equipoId=null; _drag.fromUPos=null; return; }
-    if (posA<=oE&&endB>=oS) { showAlert(`Colision de ${eqB.id} con ${other.id}.`); _drag.equipoId=null; _drag.fromUPos=null; return; }
+    if (posB<=oE&&endA>=oS) { showAlert(`Colision de ${equipoLabel(eqA)} con ${equipoLabel(other)}.`); _drag.equipoId=null; _drag.fromUPos=null; return; }
+    if (posA<=oE&&endB>=oS) { showAlert(`Colision de ${equipoLabel(eqB)} con ${equipoLabel(other)}.`); _drag.equipoId=null; _drag.fromUPos=null; return; }
   }
   // Guardar referencias antes del reload
   const savedLocId2  = state.locacion?.id;
@@ -781,14 +855,14 @@ function renderEquipoList() {
   const titleEl = document.getElementById('equiposTitle');
   const el      = document.getElementById('equipoList');
   if (!state.rack) { titleEl.textContent='EQUIPOS'; el.innerHTML='<div class="empty-state">Selecciona un rack</div>'; return; }
-  titleEl.textContent = `EQUIPOS · ${state.rack.id}`;
+  titleEl.textContent = `EQUIPOS · ${state.rack.nombre||''}`;
   const list = DB.getEquiposByRack(db, state.rack.id);
   if (!list.length) { el.innerHTML='<div class="empty-state">Sin equipos</div>'; return; }
   el.innerHTML='';
   list.forEach(eq => {
     const div=document.createElement('div');
     div.className='eq-list-item'+(state.equipo?.id===eq.id?' selected':'');
-    div.innerHTML=`<span class="eq-u-badge">${eq.uPos!=null?'U'+eq.uPos:'?'}</span><span class="eq-list-name">${esc(eq.id)}</span><span class="eq-list-model">${esc(eq.modelo||'')}</span><span class="pill ${pillClass(eq.estado)}">${esc((eq.estado||'').toUpperCase())}</span>`;
+    div.innerHTML=`<span class="eq-u-badge">${eq.uPos!=null?'U'+eq.uPos:'?'}</span><span class="eq-list-name">${esc(eq.modelo||'')}</span><span class="eq-list-model">${esc((eq.numeroSerie&&eq.numeroSerie!=='N/A')?eq.numeroSerie:'')}</span><span class="pill ${pillClass(eq.estado)}">${esc((eq.estado||'').toUpperCase())}</span>`;
     div.onclick=()=>selectEquipo(eq);
     div.addEventListener('contextmenu',e=>{e.preventDefault();showEquipoCtxMenu(e,eq);});
     el.appendChild(div);
@@ -815,7 +889,6 @@ function renderEquipoDetail() {
   const pos = eq.uPos!=null?`U${eq.uPos} (${eq.uSize}U)`:'—';
   el.innerHTML=`
     <div class="detail-box">
-      <div class="detail-row"><span class="detail-key">NOMBRE</span>   <span class="detail-val">${esc(safeText(eq.id))}</span></div>
       <div class="detail-row"><span class="detail-key">MODELO</span>   <span class="detail-val">${esc(safeText(eq.modelo))}</span></div>
       <div class="detail-row"><span class="detail-key">N° SERIE</span> <span class="detail-val">${esc(safeText(eq.numeroSerie))}</span></div>
       <div class="detail-row"><span class="detail-key">PUERTO</span>   <span class="detail-val"><span class="port-badge ${portClass(eq.puertoConexion)}">${esc(safeText(eq.puertoConexion))}</span></span></div>
@@ -836,7 +909,7 @@ function renderConexList() {
   const titleEl=document.getElementById('conexTitle');
   const el=document.getElementById('conexList');
   if (!state.equipo) { titleEl.textContent='CONEXIONES'; el.innerHTML='<div class="empty-state">Selecciona un equipo</div>'; return; }
-  titleEl.textContent=`CONEXIONES · ${state.equipo.id}`;
+  titleEl.textContent=`CONEXIONES · ${equipoLabel(state.equipo)}`;
   const list=DB.getConexionesByEquipo(db,state.equipo.id);
   if (!list.length) { el.innerHTML='<div class="empty-state">Sin conexiones</div>'; return; }
   el.innerHTML='';
@@ -858,7 +931,7 @@ function renderConexDetail() {
   const c=state.conexion;
   el.innerHTML=`
     <div class="detail-box">
-      <div class="detail-row"><span class="detail-key">ID / PUERTO</span><span class="detail-val">${esc(safeText(c.id))}</span></div>
+      <div class="detail-row"><span class="detail-key">PUERTO</span>     <span class="detail-val">${esc(safeText(c.id))}</span></div>
       <div class="detail-row"><span class="detail-key">TIPO</span>       <span class="detail-val"><span class="port-badge ${portClass(c.tipo)}">${esc(safeText(c.tipo))}</span></span></div>
       <div class="detail-row"><span class="detail-key">ESTADO</span>     <span class="detail-val"><span class="pill ${pillClass(c.estado)}">${esc((c.estado||'').toUpperCase())}</span></span></div>
       <div class="detail-row"><span class="detail-key">DESTINO</span>    <span class="detail-val">${esc(safeText(c.destino))}</span></div>
@@ -972,7 +1045,7 @@ function showRackCtxMenu(e,rack) {
       {label:'+ Nuevo equipo',  action:()=>{selectRack(rack);openEquipoModal(null);}}
     ] : []),
     'sep',
-    {label:'🗑 Eliminar rack', danger:true, action:()=>showConfirm(`¿Eliminar rack ${rack.id}?`,async()=>{await DB.deleteRack(db,rack.id);if(state.rack?.id===rack.id){state.rack=null;state.equipo=null;state.conexion=null;}syncStateSelection();refreshAll();})},
+    {label:'🗑 Eliminar rack', danger:true, action:()=>showConfirm(`¿Eliminar rack "${esc(rack.nombre||'')}"?`,async()=>{await DB.deleteRack(db,rack.id);if(state.rack?.id===rack.id){state.rack=null;state.equipo=null;state.conexion=null;}syncStateSelection();refreshAll();})},
   ]);
 }
 function showEquipoCtxMenu(e,eq) {
@@ -982,7 +1055,7 @@ function showEquipoCtxMenu(e,eq) {
       {label:'+ Nueva conexion',  action:()=>{selectEquipo(eq);openConexModal(null);}}
     ] : []),
     'sep',
-    {label:'🗑 Eliminar equipo', danger:true, action:()=>showConfirm(`¿Eliminar ${eq.id}?`,async()=>{await DB.deleteEquipo(db,eq.id);if(state.equipo?.id===eq.id){state.equipo=null;state.conexion=null;}syncStateSelection();refreshAll();})},
+    {label:'🗑 Eliminar equipo', danger:true, action:()=>showConfirm(`¿Eliminar "${esc(equipoLabel(eq))}"?`,async()=>{await DB.deleteEquipo(db,eq.id);if(state.equipo?.id===eq.id){state.equipo=null;state.conexion=null;}syncStateSelection();refreshAll();})},
   ]);
 }
 function showConnCtxMenu(e,conn) {
@@ -998,7 +1071,7 @@ function showConnCtxMenu(e,conn) {
 window.confirmDeleteEquipo = function() {
   if (!state.equipo) return;
   const eq=state.equipo;
-  showConfirm(`¿Eliminar equipo ${eq.id}?`,async()=>{await DB.deleteEquipo(db,eq.id);state.equipo=null;state.conexion=null;syncStateSelection();refreshAll();});
+  showConfirm(`¿Eliminar "${esc(equipoLabel(eq))}"?`,async()=>{await DB.deleteEquipo(db,eq.id);state.equipo=null;state.conexion=null;syncStateSelection();refreshAll();});
 };
 window.confirmDeleteConex = function() {
   if (!state.conexion) return;
@@ -1076,8 +1149,6 @@ function openRackModal(rack) {
   const body = `
     <p class="hint" style="margin-bottom:10px;">Site: <b>${state.site?.nombre||'—'}</b> · Locacion: <b>${state.locacion?.nombre||'—'}</b></p>
     <div class="form-grid">
-      <label class="form-label">ID:</label>
-      <input type="text" id="mRackId" value="${isEdit?esc(r.id):'(Auto)'}" readonly disabled style="opacity:.6">
       <label class="form-label">Nombre:</label>
       <input type="text" id="mRackNombre" value="${esc(r.nombre)}" placeholder="nombre del rack">
       <label class="form-label">Ubicacion:</label>
@@ -1089,7 +1160,7 @@ function openRackModal(rack) {
   const footer = `
     <button class="btn" onclick="closeModal()">✕ Cancelar</button>
     <button class="btn primary" onclick="saveRack(${isEdit})">${isEdit?'💾 Guardar':'＋ Crear'}</button>`;
-  openModal(isEdit?`EDITAR RACK · ${r.id}`:`NUEVO RACK · ${state.site?.nombre||''}`, body, footer);
+  openModal(isEdit?`EDITAR RACK · ${esc(r.nombre||'')}`:`NUEVO RACK · ${state.site?.nombre||''}`, body, footer);
 }
 window.openRackModal = openRackModal;
 
@@ -1124,10 +1195,8 @@ function openEquipoModal(eq) {
   const isEdit=!!eq;
   const e=eq||{modelo:'',numeroSerie:'',puertoConexion:'',servicio:'',estado:'Activo',uPos:1,uSize:1};
   const body=`
-    <p class="hint" style="margin-bottom:10px;">Rack: <b>${state.rack.id}</b> · Site: <b>${state.site?.nombre||'—'}</b></p>
+    <p class="hint" style="margin-bottom:10px;">Rack: <b>${esc(state.rack.nombre||'')}</b> · Site: <b>${state.site?.nombre||'—'}</b></p>
     <div class="form-grid">
-      <label class="form-label">ID:</label>
-      <input type="text" id="mEqId" value="${isEdit?esc(e.id):'(Auto)'}" readonly disabled style="opacity:.6">
       <label class="form-label">Modelo:</label>
       <input type="text" id="mEqModelo" value="${esc(e.modelo||'')}" placeholder="ej: Dell PowerEdge R740">
       <label class="form-label">N Serie:</label>
@@ -1151,7 +1220,7 @@ function openEquipoModal(eq) {
   const footer=`
     <button class="btn" onclick="closeModal()">✕ Cancelar</button>
     <button class="btn primary" onclick="saveEquipo(${isEdit},'${isEdit?esc(e.id):''}')">${isEdit?'💾 Guardar':'＋ Crear'}</button>`;
-  openModal(isEdit?`EDITAR EQUIPO · ${e.id}`:`NUEVO EQUIPO · Rack ${state.rack.id}`, body, footer);
+  openModal(isEdit?`EDITAR EQUIPO · ${esc(equipoLabel(e))}`:`NUEVO EQUIPO · Rack ${esc(state.rack.nombre||'')}`, body, footer);
 }
 window.openEquipoModal = openEquipoModal;
 
@@ -1175,10 +1244,8 @@ function openInstallDialog(uPos) {
   const fakeEq={modelo:'',numeroSerie:'',puertoConexion:'',servicio:'',estado:'Activo',uPos,uSize:1};
   if(!state.rack||!isValidEntity(state.rack)){showAlert('Primero selecciona un rack valido.');return;}
   const body=`
-    <p class="hint" style="margin-bottom:10px;">Rack: <b>${state.rack.id}</b> · Slot U${uPos}</p>
+    <p class="hint" style="margin-bottom:10px;">Rack: <b>${esc(state.rack.nombre||'')}</b> · Slot U${uPos}</p>
     <div class="form-grid">
-      <label class="form-label">ID:</label>
-      <input type="text" id="mEqId" value="(Auto)" readonly disabled style="opacity:.6">
       <label class="form-label">Modelo:</label>
       <input type="text" id="mEqModelo" value="" placeholder="ej: Dell PowerEdge R740">
       <label class="form-label">N Serie:</label>
@@ -1196,7 +1263,7 @@ function openInstallDialog(uPos) {
     </div>
     <div id="mEqErr" class="error-text"></div>`;
   const footer=`<button class="btn" onclick="closeModal()">✕ Cancelar</button><button class="btn primary" onclick="saveEquipo(false,'')">＋ Instalar</button>`;
-  openModal(`INSTALAR EN U${uPos} · Rack ${state.rack.id}`, body, footer);
+  openModal(`INSTALAR EN U${uPos} · Rack ${esc(state.rack.nombre||'')}`, body, footer);
 }
 
 // ════════════════════════════════════════════════════════
@@ -1209,9 +1276,9 @@ function openConexModal(conn) {
   const c=conn||{id:'',equipoId:state.equipo.id,tipo:'RJ45',estado:'Activo',destino:''};
   const tipoOpts=['RJ45','SFP+','SFP','Serial','Console','Fiber','USB','Other'];
   const body=`
-    <p class="hint" style="margin-bottom:10px;">Equipo: <b>${esc(state.equipo.id)}</b></p>
+    <p class="hint" style="margin-bottom:10px;">Equipo: <b>${esc(equipoLabel(state.equipo))}</b></p>
     <div class="form-grid">
-      <label class="form-label">ID / Puerto:</label>
+      <label class="form-label">Puerto:</label>
       <input type="text" id="mCxId" value="${esc(c.id)}" placeholder="ej: eth0, Gi1/0/1" ${isEdit?'readonly disabled style="opacity:.6"':''}>
       <label class="form-label">Tipo:</label>
       <select id="mCxTipo">${tipoOpts.map(t=>`<option ${c.tipo===t?'selected':''}>${t}</option>`).join('')}</select>
@@ -1226,7 +1293,7 @@ function openConexModal(conn) {
     </div>
     <div id="mCxErr" class="error-text"></div>`;
   const footer=`<button class="btn" onclick="closeModal()">✕ Cancelar</button><button class="btn primary" onclick="saveConexion(${isEdit},'${esc(c.id)}')">${isEdit?'💾 Guardar':'＋ Crear'}</button>`;
-  openModal(isEdit?`EDITAR CONEXION · ${c.id}`:`NUEVA CONEXION · ${state.equipo.id}`, body, footer);
+  openModal(isEdit?`EDITAR CONEXION · ${esc(c.id)}`:`NUEVA CONEXION · ${esc(equipoLabel(state.equipo))}`, body, footer);
 }
 window.openConexModal = openConexModal;
 
@@ -1237,7 +1304,7 @@ window.saveConexion = async function(isEdit, oldId) {
   const tipo    = document.getElementById('mCxTipo').value;
   const estado  = document.getElementById('mCxEstado').value;
   const destino = document.getElementById('mCxDestino').value.trim();
-  if(!id){errEl.textContent='El ID/Puerto es obligatorio.';return;}
+  if(!id){errEl.textContent='El puerto es obligatorio.';return;}
   const conn={id,equipoId:state.equipo.id,tipo,estado,destino};
   try {
     if(isEdit){await DB.updateConexion(db,conn);state.conexion=db.conexiones.find(c=>c.id===id&&c.equipoId===state.equipo.id)||null;}
